@@ -1,0 +1,5 @@
+playwright>=1.53.0,<2
+openpyxl>=3.1.5,<4
+fastapi>=0.104.0,<1
+uvicorn>=0.24.0,<1
+requests>=2.31.0,<3

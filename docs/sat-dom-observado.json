@@ -1,0 +1,101 @@
+[
+  {
+    "tag": "LINK",
+    "id": "cssValidationSummary",
+    "name": null,
+    "type": "text/css",
+    "text": "",
+    "placeholder": null,
+    "visible": false
+  },
+  {
+    "tag": "H4",
+    "id": "",
+    "name": null,
+    "type": null,
+    "text": "Acesso com senha",
+    "placeholder": null,
+    "visible": true
+  },
+  {
+    "tag": "INPUT",
+    "id": "Body_pnlMain_rptLoginPanels_tbxUsername_0",
+    "name": "ctl00$Body$pnlMain$rptLoginPanels$ctl00$tbxUsername",
+    "type": "text",
+    "text": null,
+    "placeholder": "Usuário",
+    "visible": true
+  },
+  {
+    "tag": "INPUT",
+    "id": "Body_pnlMain_rptLoginPanels_tbxUserPassword_0",
+    "name": "ctl00$Body$pnlMain$rptLoginPanels$ctl00$tbxUserPassword",
+    "type": "password",
+    "text": null,
+    "placeholder": "Senha",
+    "visible": true
+  },
+  {
+    "tag": "A",
+    "id": "Body_pnlMain_rptLoginPanels_btnLogin_0",
+    "name": null,
+    "type": null,
+    "text": "Entrar",
+    "placeholder": null,
+    "visible": true
+  },
+  {
+    "tag": "H4",
+    "id": "",
+    "name": null,
+    "type": null,
+    "text": "Acesso com Certificado Digital",
+    "placeholder": null,
+    "visible": true
+  },
+  {
+    "tag": "A",
+    "id": "Body_pnlMain_rptLoginPanels_btnLoginCertificado_1",
+    "name": null,
+    "type": null,
+    "text": "Entrar com Certificado Digital",
+    "placeholder": null,
+    "visible": true
+  },
+  {
+    "tag": "H4",
+    "id": "",
+    "name": null,
+    "type": null,
+    "text": "Selecione o usuário com o qual você deseja entrar:",
+    "placeholder": null,
+    "visible": false
+  },
+  {
+    "tag": "A",
+    "id": "Body_pnlMain_lkbBackToLogin",
+    "name": null,
+    "type": null,
+    "text": "Voltar",
+    "placeholder": null,
+    "visible": false
+  },
+  {
+    "tag": "A",
+    "id": "Body_hlkPolicy",
+    "name": null,
+    "type": null,
+    "text": "Política de privacidade e termos de uso",
+    "placeholder": null,
+    "visible": true
+  },
+  {
+    "tag": "A",
+    "id": "postBackEventHandler",
+    "name": null,
+    "type": null,
+    "text": "",
+    "placeholder": null,
+    "visible": true
+  }
+]

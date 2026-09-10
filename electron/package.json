@@ -1,0 +1,97 @@
+{
+  "name": "znx-sat-automacao",
+  "version": "0.1.0",
+  "description": "Automação NFC-e SAT com Electron e FastAPI",
+  "main": "main.js",
+  "homepage": "./",
+  "scripts": {
+    "dev:renderer": "vite",
+    "build:renderer": "vite build",
+    "dev": "node dev-runner.js",
+    "start": "electron .",
+    "build": "npm run build:renderer && electron-builder --publish never"
+  },
+  "keywords": [
+    "sat",
+    "nfce",
+    "automacao"
+  ],
+  "author": "ZNX",
+  "license": "proprietary",
+  "dependencies": {
+    "electron-updater": "^6.8.3",
+    "framer-motion": "^11.0.0",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.0",
+    "concurrently": "^8.2.0",
+    "electron": "^29.4.6",
+    "electron-builder": "^24.6.4",
+    "vite": "^5.4.0",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.znx.sat.automacao",
+    "productName": "ZNX SAT Automacao",
+    "artifactName": "ZNX-SAT-Setup-${version}.${ext}",
+    "files": [
+      "main.js",
+      "license-client.js",
+      "preload.js",
+      "splash.html",
+      "assets/**/*",
+      "renderer-dist/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../dist/server",
+        "to": "backend",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "category": "public.app-category.business",
+      "icon": "assets/icon.png"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "requestedExecutionLevel": "asInvoker",
+      "icon": "assets/icon.ico",
+      "publisherName": "ZNX",
+      "signAndEditExecutable": false,
+      "signingHashAlgorithms": [
+        "sha256"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "ZNX SAT Automacao",
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico"
+    },
+    "publish": []
+  }
+}
