@@ -1,0 +1,21 @@
+{
+  "packaged": true,
+  "status": "ok",
+  "notas": 1187,
+  "eventos": 9,
+  "origem": "cache",
+  "relatorios": {
+    "clientes": {
+      "35693867000154": "D:\\Trabalho\\ZNX_NFCe_Automacao\\Downloads\\JHOW BATATA BATATAS RECHEADAS E MASSAS\\Relatorio\\Relatorio_NFCe_2026-08-01_a_2026-08-31.xlsx"
+    },
+    "pastas": {
+      "35693867000154": {
+        "empresa": "D:\\Trabalho\\ZNX_NFCe_Automacao\\Downloads\\JHOW BATATA BATATAS RECHEADAS E MASSAS",
+        "relatorio": "D:\\Trabalho\\ZNX_NFCe_Automacao\\Downloads\\JHOW BATATA BATATAS RECHEADAS E MASSAS\\Relatorio",
+        "xml": "D:\\Trabalho\\ZNX_NFCe_Automacao\\Downloads\\JHOW BATATA BATATAS RECHEADAS E MASSAS\\XMLs"
+      }
+    },
+    "erros": []
+  },
+  "segredos_omitidos": true
+}

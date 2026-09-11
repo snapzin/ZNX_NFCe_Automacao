@@ -292,7 +292,7 @@ function Sidebar({ page, setPage, devUnlocked, onLockDev }) {
         })}
       </nav>
       <div className="sidebar-footer-brand">
-        Automação NFC-e / SAT<br />v0.4.0
+        Automação NFC-e / SAT<br />v0.5.1
       </div>
     </aside>
   );
@@ -301,7 +301,10 @@ function Sidebar({ page, setPage, devUnlocked, onLockDev }) {
 function ExecutarPage({ api, toast, setStatus, onLogsUpdate, onJobStatusUpdate, jobId, setJobId, busy, setBusy }) {
   const [usePrevMonth, setUsePrevMonth] = useState(true);
   const [snapshot, setSnapshot] = useState({ total: 0, processed: 0, clients: [] });
-  const tipoAcesso = 'usuario_senha';
+  const [tipoAcesso, setTipoAcesso] = useState('certificado_api');
+  const [certificadoA1, setCertificadoA1] = useState('');
+  const [senhaA1, setSenhaA1] = useState('');
+  const [finalResult, setFinalResult] = useState(null);
   const [usuarioSAT, setUsuarioSAT] = useState('');
   const [senhaSAT, setSenhaSAT] = useState('');
   const [auth, setAuth] = useState(null);
@@ -346,6 +349,7 @@ function ExecutarPage({ api, toast, setStatus, onLogsUpdate, onJobStatusUpdate, 
         if (result.status === 'running') {
           timer = window.setTimeout(poll, 700);
         } else {
+          setFinalResult({ jobId, ...result.resultado });
           setBusy(false);
           setJobId(null);
           setCancelling(false);
@@ -384,14 +388,22 @@ function ExecutarPage({ api, toast, setStatus, onLogsUpdate, onJobStatusUpdate, 
       }
     }
     try {
-      if (!usuarioSAT.trim() || !senhaSAT) {
+      if (tipoAcesso === 'certificado_api' && !certificadoA1) {
+        toast('Selecione o certificado A1 do contador.', 'warning');
+        return;
+      }
+      if (tipoAcesso === 'usuario_senha' && (!usuarioSAT.trim() || !senhaSAT)) {
         toast('Informe usuário e senha do SAT.', 'warning');
         return;
       }
       setBusy(true);
       setAuth(null);
       const senha = senhaSAT;
+      const certificado = { arquivo: certificadoA1, senha: senhaA1 };
       setSenhaSAT('');
+      setSenhaA1('');
+      setCertificadoA1('');
+      setFinalResult(null);
       setLogs([]);
       setSnapshot({ total: 0, processed: 0, clients: [] });
       setCancelled(false);
@@ -402,7 +414,7 @@ function ExecutarPage({ api, toast, setStatus, onLogsUpdate, onJobStatusUpdate, 
         dataFim: usePrevMonth ? null : isoToBr(dataFim),
         cnpjs: null,
         modo: 'consulta',
-        credenciais: { usuario: usuarioSAT.trim(), senha },
+        ...(tipoAcesso === 'certificado_api' ? { certificado } : { credenciais: { usuario: usuarioSAT.trim(), senha } }),
         tipoLogin: tipoAcesso,
       });
       setJobId(result.jobId);
@@ -411,6 +423,23 @@ function ExecutarPage({ api, toast, setStatus, onLogsUpdate, onJobStatusUpdate, 
       setBusy(false);
       setStatus('Erro ao iniciar');
       toast(`Erro ao iniciar execução: ${error?.message || error}`, 'error');
+    }
+  };
+
+  const selectCertificate = async () => {
+    try {
+      const selected = await window.electronAPI.selectCertificate();
+      if (selected) setCertificadoA1(selected);
+    } catch {
+      toast('Não foi possível selecionar o certificado.', 'error');
+    }
+  };
+
+  const openResult = async (tipo, cnpj = '') => {
+    try {
+      await window.electronAPI.openResult(finalResult.jobId, tipo, cnpj);
+    } catch {
+      toast('Não foi possível abrir o arquivo ou pasta.', 'error');
     }
   };
 
@@ -482,8 +511,27 @@ function ExecutarPage({ api, toast, setStatus, onLogsUpdate, onJobStatusUpdate, 
       <div className="form-box">
         <h3>Parametros de execucao</h3>
 
-        <p>O acesso ao SAT usa HTTP, sem abrir o navegador. Um único login do contador atende a execução. A planilha informa apenas nome e CNPJ dos clientes.</p>
-        <div className="date-range">
+        <p>Baixe as NFC-e dos clientes selecionados sem abrir navegador. A planilha precisa apenas de nome e CNPJ.</p>
+        <label className="config-field"><span>Forma de acesso</span>
+          <select aria-label="Forma de acesso" value={tipoAcesso} disabled={busy} onChange={e => { setTipoAcesso(e.target.value); setSenhaSAT(''); setSenhaA1(''); }}>
+            <option value="certificado_api">API NFC-e — certificado A1 do contador</option>
+            <option value="usuario_senha">Portal SAT — usuário e senha</option>
+          </select>
+        </label>
+        {tipoAcesso === 'certificado_api' ? <>
+          <div className="date-range certificate-row">
+            <div className="config-field"><span>Certificado do contador</span>
+              <button className="btn-secondary" type="button" onClick={selectCertificate} disabled={busy}>
+                {certificadoA1 ? 'Trocar certificado A1' : 'Selecionar certificado A1'}
+              </button>
+              <small>{certificadoA1 ? 'Certificado selecionado para esta execução' : 'Arquivo .pfx ou .p12'}</small>
+            </div>
+            <label className="config-field"><span>Senha do certificado (somente nesta execução)</span>
+              <input type="password" autoComplete="new-password" value={senhaA1} onChange={e => setSenhaA1(e.target.value)} disabled={busy} />
+            </label>
+          </div>
+          <p>Um único A1 atende todas as empresas vinculadas ao contador. Ao concluir, os relatórios Excel são gerados automaticamente. Durante o intervalo de 12 horas da SEF, os arquivos locais são reaproveitados.</p>
+        </> : <><div className="date-range">
           <label className="config-field"><span>Usuário SAT</span>
             <input type="text" autoComplete="off" value={usuarioSAT} onChange={e => setUsuarioSAT(e.target.value)} disabled={busy} />
           </label>
@@ -491,12 +539,13 @@ function ExecutarPage({ api, toast, setStatus, onLogsUpdate, onJobStatusUpdate, 
             <input type="password" autoComplete="new-password" value={senhaSAT} onChange={e => setSenhaSAT(e.target.value)} disabled={busy} />
           </label>
         </div>
-        <p>A consulta do portal pode exigir validação humana. Nesse caso, a execução registra pendência. A API oficial de XML exige certificado digital.</p>
+        <p>A consulta do portal pode exigir validação humana. Para baixar XMLs automaticamente, selecione a API com certificado A1.</p></>}
 
         <label className="check-row">
           <input
             type="checkbox"
             checked={usePrevMonth}
+            disabled={busy}
             onChange={(event) => setUsePrevMonth(event.target.checked)}
           />
           Usar mês anterior automaticamente
@@ -509,6 +558,7 @@ function ExecutarPage({ api, toast, setStatus, onLogsUpdate, onJobStatusUpdate, 
               <input
                 type="date"
                 value={dataInicio}
+                disabled={busy}
                 onChange={(e) => setDataInicio(e.target.value)}
                 max={dataFim || undefined}
               />
@@ -518,6 +568,7 @@ function ExecutarPage({ api, toast, setStatus, onLogsUpdate, onJobStatusUpdate, 
               <input
                 type="date"
                 value={dataFim}
+                disabled={busy}
                 onChange={(e) => setDataFim(e.target.value)}
                 min={dataInicio || undefined}
               />
@@ -537,6 +588,23 @@ function ExecutarPage({ api, toast, setStatus, onLogsUpdate, onJobStatusUpdate, 
         </div>
       </div>
 
+      {finalResult && (
+        <div className="form-box report-box">
+          <h3>Arquivos e relatórios</h3>
+          <p>{finalResult.notas || 0} NFC-e · {finalResult.eventos || 0} eventos · {finalResult.total || 0} empresa(s) processada(s)</p>
+          {finalResult.report_error && <p role="alert">{finalResult.report_error}</p>}
+          {(finalResult.resultados || []).map(client => (
+            <div className="report-client" key={client.cnpj}>
+              <div><strong>{client.nome}</strong><small>{client.cnpj} · {client.notas || 0} NFC-e · {client.eventos || 0} eventos</small></div>
+              <div className="form-actions">
+                {finalResult.relatorios?.clientes?.[client.cnpj] && <button type="button" className="btn-secondary" onClick={() => openResult('cliente', client.cnpj)}>Relatório da empresa</button>}
+                {finalResult.relatorios?.pastas?.[client.cnpj]?.relatorio && <button type="button" className="btn-secondary" onClick={() => openResult('relatorio', client.cnpj)}>Pasta Relatorio</button>}
+                {client.pasta && <button type="button" className="btn-secondary" onClick={() => openResult('xml', client.cnpj)}>Pasta dos XMLs</button>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
       {(busy || auth) && (
         <div className="form-box">
           <h3>Acesso do contador</h3>
@@ -550,7 +618,7 @@ function ExecutarPage({ api, toast, setStatus, onLogsUpdate, onJobStatusUpdate, 
               {busy && runningCount > 0
                 ? `Processando ${processed + 1} de ${totalEsperado}`
                 : busy
-                  ? 'Iniciando...'
+                  ? (snapshot.stage || 'Iniciando...')
                   : `${processed} de ${totalEsperado} processado(s)`}
             </div>
             <div className="progress-pct">{pct}%</div>
@@ -600,7 +668,7 @@ function ExecutarPage({ api, toast, setStatus, onLogsUpdate, onJobStatusUpdate, 
           <p>
             {cancelled
               ? <>Execução cancelada. Clique em <strong>Executar agora</strong> para iniciar novamente.</>
-              : <>Clique em <strong>Executar agora</strong> para acessar o SAT com usuário e senha do contador.</>}
+              : <>Selecione os clientes e informe o acesso do contador para iniciar.</>}
           </p>
         </div>
       )}
@@ -700,9 +768,9 @@ function SobrePage() {
       >
         <h1>SAT</h1>
         <h2>Automacao</h2>
-        <p className="version">Versao 0.4.0</p>
+        <p className="version">Versão 0.5.1</p>
         <p className="description">
-          Acessa o SAT uma vez com usuário e senha do contador e usa nome/CNPJ dos clientes como alvos da consulta. Comunicação HTTP sem navegador; download sujeito à validação exigida pelo SAT.
+          Baixa NFC-e pela API da SEF com um único certificado A1 do contador, sem navegador. Cada empresa recebe somente as pastas Relatorio e XMLs.
         </p>
         <div className="about-info">
           {rows.map(([label, value]) => (
@@ -1034,7 +1102,7 @@ function DeveloperPage({ api, toast, logs, jobStatus }) {
           <div className="dev-box-head"><h3>Informações do sistema</h3><button className="btn-secondary" type="button" onClick={fetchInfo}>Atualizar</button></div>
           {systemInfo ? (
             <div className="dev-info-grid">
-              <div className="info-row"><span className="label">Autenticação</span><span className="value">Usuário e senha do contador</span></div>
+              <div className="info-row"><span className="label">Autenticação principal</span><span className="value">Certificado A1 do contador · API NFC-e</span></div>
               <div className="info-row"><span className="label">Pasta saída</span><span className="value">{systemInfo.cfg?.values?.PASTA_SAIDA || '—'}</span></div>
             </div>
           ) : <p className="log-muted">Carregando...</p>}

@@ -7,4 +7,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('select-folder'),
   selectFile: () =>
     ipcRenderer.invoke('select-file'),
+  selectCertificate: () =>
+    ipcRenderer.invoke('select-certificate'),
+  openResult: (jobId, tipo, cnpj = '') =>
+    ipcRenderer.invoke('open-result', jobId, tipo, cnpj),
 });

@@ -1444,6 +1444,13 @@ input::placeholder {
   flex-wrap: wrap;
 }
 
+.certificate-row { margin-top: 16px; align-items: start; }
+.certificate-row small, .report-client small { display: block; color: var(--text-2); margin-top: 8px; }
+.report-box { border-color: #087f8c; }
+.report-client { display: flex; justify-content: space-between; align-items: center; gap: 18px; padding: 16px 0; border-top: 1px solid var(--line); margin-top: 16px; }
+.report-client .form-actions { margin: 0; flex-wrap: wrap; }
+.config-field select { padding: 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text-1); }
+
 /* ─── Responsive ──────────────────────────────── */
 @media (max-width: 900px) {
   .sidebar { width: 180px; flex-basis: 180px; }

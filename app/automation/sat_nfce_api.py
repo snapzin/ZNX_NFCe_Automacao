@@ -52,7 +52,7 @@ def mensagem(cnpj, nsu=0, ator=1):
         raise ValueError("Parâmetros de consulta inválidos")
     return (f'<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"><soap:Body>'
             f'<nfceDownloadContab xmlns="{NAMESPACE}"><distNFCeSC versao="1.00">'
-            f'<tpAmb>1</tpAmb><verAplic>ZNX-SAT-0.5.0</verAplic><cUF>42</cUF><CNPJ>{cnpj}</CNPJ>'
+            f'<tpAmb>1</tpAmb><verAplic>ZNX-SAT-0.5.1</verAplic><cUF>42</cUF><CNPJ>{cnpj}</CNPJ>'
             f'<solRel><indXML>1</indXML><indAtor>{ator}</indAtor><ultNuNSU>{int(nsu)}</ultNuNSU></solRel>'
             '</distNFCeSC></nfceDownloadContab></soap:Body></soap:Envelope>').encode("utf-8")
 

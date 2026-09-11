@@ -1,0 +1,12 @@
+{
+  "status": "ok",
+  "codigo": "118",
+  "message": "Download concluído; XMLs do período disponíveis",
+  "documentos": 1196,
+  "notas": 1187,
+  "eventos": 9,
+  "ultimo_nsu": 11962,
+  "proxima_consulta": "2026-09-12T06:05:28.252624+00:00",
+  "pasta": "D:\\Trabalho\\ZNX_NFCe_Automacao\\Saida\\35693867000154\\2026-08-01_a_2026-08-31\\ator_1",
+  "from_cache": false
+}

@@ -99,16 +99,17 @@ def exportar_cache(cache, output, inicio, fim, cancel_event=None):
     counts = {"nfeProc": 0, "procEventoNFe": 0}
     for nsu, (day, kind, xml) in found.items():
         check_cancel(cancel_event)
-        folder = output / ("NFCe" if kind == "nfeProc" else "Eventos")
-        folder.mkdir(parents=True, exist_ok=True)
-        target = folder / f"{day}_{nsu}_{kind}.xml"
+        output.mkdir(parents=True, exist_ok=True)
+        prefix = "NFCe" if kind == "nfeProc" else "Evento"
+        target = output / f"{prefix}_{day}_{nsu}.xml"
         if not target.exists() or target.read_bytes() != xml:
             atomic_write(target, xml)
         counts[kind] += 1
     return counts["nfeProc"], counts["procEventoNFe"]
 
 
-def baixar_periodo(api, *, cnpj, inicio, fim, pasta_saida, ator=1, cancel_event=None, on_step=None, on_response=None):
+def baixar_periodo(api, *, cnpj, inicio, fim, pasta_saida, pasta_cache=None, ator=1,
+                   cancel_event=None, on_step=None, on_response=None):
     if not re.fullmatch(r"[A-Z0-9]{12}\d{2}", cnpj) or ator not in {1, 2, 3, 9}:
         raise ValueError("CNPJ/filtro inválido")
     if not all(re.fullmatch(r"\d{4}-\d{2}-\d{2}", day) for day in (inicio, fim)):
@@ -117,9 +118,9 @@ def baixar_periodo(api, *, cnpj, inicio, fim, pasta_saida, ator=1, cancel_event=
     if start > end:
         raise ValueError("Período inválido")
     step = on_step or (lambda _: None)
-    base = Path(pasta_saida).resolve() / cnpj
-    cache = base / ("api_sef" if ator == 1 else f"api_sef_ator_{ator}")
-    output = base / f"{inicio}_a_{fim}" / f"ator_{ator}"
+    output = Path(pasta_saida).resolve()
+    cache_base = Path(pasta_cache).resolve() if pasta_cache else output / ".cache_nfce" / cnpj
+    cache = cache_base / ("api_sef" if ator == 1 else f"api_sef_ator_{ator}")
     cache.mkdir(parents=True, exist_ok=True)
     state_path = cache / "estado.json"
     with bloquear(cache / "consulta.lock"):
@@ -184,6 +185,5 @@ def baixar_periodo(api, *, cnpj, inicio, fim, pasta_saida, ator=1, cancel_event=
             notes+events, notes, events, state["nsu"],
             datetime.fromtimestamp(state["proxima"],timezone.utc).isoformat(), str(output))
         result.from_cache = not consulted
-        output.mkdir(parents=True, exist_ok=True)
-        salvar_estado(output / "resultado.json", asdict(result))
+        salvar_estado(cache / "ultimo_resultado.json", asdict(result))
         return result

@@ -1,4 +1,48 @@
-# Teste posterior com A1 — API oficial
+# Versão 0.5.1 — saída simplificada por empresa
+
+Após cada operação, a pasta de saída contém uma pasta pelo nome da empresa e,
+dentro dela, somente `Relatorio` e `XMLs`. NFC-e e eventos ficam juntos em XMLs,
+identificados pelo prefixo do arquivo. Não são expostas pastas de CNPJ, período,
+job, API, tipo de documento ou estado NSU. O controle técnico fica na área interna
+do aplicativo. Nomes repetidos recebem o CNPJ para evitar mistura de empresas.
+
+90 testes automatizados aprovados. Interface compilada e Electron real aprovados.
+O aplicativo empacotado 0.5.1 também abriu e executou o fluxo com o A1 autorizado
+sobre o cache real: 1.187 NFC-e, 9 eventos, relatório produzido e status ok. A
+pasta real de demonstração ficou com exatamente duas subpastas e 1.196 XMLs.
+
+Instalador 0.5.1: 103.284.690 bytes, SHA-256
+`c5e71661c7d010625d37671078d9ee27e5b371731aec52982fd09db2dc8a36f4`.
+Pacote de entrega: ENTREGA_0.5.1.json.
+
+# Versão 0.5.0 — aplicativo com A1 e relatórios
+
+API oficial conectada à tela Executar, como opção padrão. Um certificado por job,
+planilha somente nome/CNPJ, senha e caminho do A1 fora da configuração e dos logs.
+Relatório Excel por empresa, com botões para abrir o arquivo e as duas pastas.
+
+89 testes automatizados aprovados. UI compilada: seletor A1, senha limpa ao iniciar,
+requisição correta, botões dos relatórios, cadastro sem credenciais e modo de portal
+preservado. Electron real em desenvolvimento e aplicativo empacotado aprovados.
+
+O aplicativo empacotado processou o certificado autorizado e os XMLs reais já
+distribuídos para 35.693.867/0001-54, agosto/2026: 1.187 NFC-e, 9 eventos e relatório
+com 2.547 itens e 9 cancelamentos identificados. Origem desta rodada: cache local,
+respeitando a espera da SEF. Não foi feita nova requisição fiscal neste teste.
+Relatórios produzidos pelo backend empacotado, status ok, sem erro ou segredo no
+resultado. Evidência: TESTE_APP_CERTIFICADO.json.
+
+Instalador 0.5.0: 103.283.670 bytes, SHA-256
+`1393120426654b75d6537fee4aa76b189c9b8aa57e23e1c25d8e1364e5c6a97c`.
+Pacote de entrega inclui instalador, guia e planilha modelo; não contém certificado,
+senha, cadastro real ou documentos fiscais. Hashes: ENTREGA_0.5.0.json.
+
+O teste abriu os binários empacotados sem efetuar instalação no Windows. Abertura
+dos destinos dos relatórios foi validada via IPC/API; o Excel do sistema não foi
+iniciado automaticamente. Persistem dois avisos de depreciação TestClient/AnyIO
+nos testes e avisos de dependências opcionais no build, sem impedir a execução.
+
+# Teste posterior com A1 — API oficial (antes da integração)
 
 Certificado aceito e acesso autorizado ao CNPJ 35.693.867/0001-54. Baixados
 1.187 XML de NFC-e e 9 XML de eventos de agosto/2026. Digest e assinatura RSA

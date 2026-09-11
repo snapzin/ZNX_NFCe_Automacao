@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Menu, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu, dialog, shell } = require('electron');
 const { spawn, exec } = require('child_process');
 const { randomBytes } = require('crypto');
 const net = require('net');
@@ -266,6 +266,28 @@ ipcMain.handle('select-file', async () => {
     filters: [{ name: 'Planilhas', extensions: ['xlsx', 'xlsm'] }],
   });
   return result.canceled ? null : result.filePaths[0];
+});
+
+ipcMain.handle('select-certificate', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openFile'],
+    filters: [{ name: 'Certificado A1', extensions: ['pfx', 'p12'] }],
+  });
+  return result.canceled ? null : result.filePaths[0];
+});
+
+ipcMain.handle('open-result', async (_event, jobId, tipo, cnpj = '') => {
+  if (!/^[a-zA-Z0-9-]+$/.test(jobId) || !['cliente', 'relatorio', 'xml'].includes(tipo)) {
+    throw new Error('Resultado inválido');
+  }
+  const response = await fetch(`${API_URL}/executar/${encodeURIComponent(jobId)}/arquivo?tipo=${tipo}&cnpj=${encodeURIComponent(cnpj)}`, {
+    headers: { 'x-api-token': API_TOKEN }, signal: AbortSignal.timeout(10000),
+  });
+  if (!response.ok) throw new Error('Arquivo ou pasta não disponível');
+  const result = await response.json();
+  const error = await shell.openPath(result.path);
+  if (error) throw new Error('Não foi possível abrir o arquivo ou pasta');
+  return { ok: true };
 });
 
 ipcMain.handle('api-call', async (event, method, endpoint, body) => {

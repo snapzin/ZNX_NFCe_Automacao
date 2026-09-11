@@ -131,7 +131,7 @@ def test_failed_continuation_preserves_checkpoint(tmp_path, signed_xml):
     api.consultar_lote.side_effect = [batch(signed_xml, 1, 50), ErroAPI("Falha de transporte")]
     with pytest.raises(ErroAPI):
         download(api, tmp_path)
-    cache = tmp_path / CNPJ / "api_sef"
+    cache = tmp_path / ".cache_nfce" / CNPJ / "api_sef"
     state = json.loads((cache / "estado.json").read_text())
     assert state["nsu"] == 50 and not state["completo"]
     assert (cache / "lote_0_50.xml").exists()
@@ -158,7 +158,7 @@ def test_inconsistent_batch_never_advances_nsu(tmp_path, signed_xml):
     api.consultar_lote.return_value = response
     with pytest.raises(ErroAPI, match="inconsistente"):
         download(api, tmp_path)
-    state = json.loads((tmp_path / CNPJ / "api_sef" / "estado.json").read_text())
+    state = json.loads((tmp_path / ".cache_nfce" / CNPJ / "api_sef" / "estado.json").read_text())
     assert state["nsu"] == 0
 
 

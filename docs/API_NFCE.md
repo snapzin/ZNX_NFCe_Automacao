@@ -18,8 +18,21 @@ Instale `requirements.txt` no ambiente Python do projeto e execute:
 ```
 
 Informe caminho e senha do A1 nas entradas ocultas do terminal. Não inclua senha
-nos argumentos do comando. O fluxo SOAP funciona pelo terminal; ainda não está
-ligado aos jobs da interface nem incorporado no instalador 0.4.0.
+nos argumentos do comando. Na versão **0.5.1**, o mesmo fluxo está ligado à tela
+Executar e ao instalador. A interface usa a API com A1 por padrão e gera os
+relatórios automaticamente ao terminar os jobs. O comando acima continua útil
+para diagnóstico de download pelo terminal.
+
+Os relatórios seguem o Excel da NFSe, adaptado para NFC-e: Resumo, NFC-e,
+Canceladas, Itens e Eventos. Cada empresa tem somente as pastas `Relatorio` e
+`XMLs`; erros e cancelamentos aparecem no relatório da própria empresa. O nome e
+a senha do certificado não aparecem no relatório. Arquivos são abertos pelos
+botões da interface, que aceitam apenas artefatos registrados no job.
+
+Cancelamentos consideram tipos 110111/110112 com retorno 135/155 e chave/tipo
+correspondentes. Referência: [NT 2018.004, portal oficial NF-e](https://www.nfe.fazenda.gov.br/PORTal/exibirArquivo.aspx?AspxAutoDetectCookieSupport=1&conteudo=DEisbx2XCIs%3D).
+Eventos posteriores às datas consultadas são considerados quando já distribuídos
+e vinculados a uma nota do relatório. Valores de eventos não são somados aos das notas.
 
 ## Protocolo e continuação
 
@@ -32,15 +45,15 @@ e o [BT SC-2026/003 v1.00-1](https://www.sef.sc.gov.br/api/download?id=8609&mime
   encerra a rodada e exige esperar 12 horas. Status 110 aguarda uma hora.
 - Checkpoint gravado após cada lote. Tentativa é reservada antes da rede para
   impedir repetição imediata após erro de resultado incerto. Lock impede duas
-  consultas simultâneas para a mesma empresa/filtro nesta pasta de saída.
+  consultas simultâneas para a mesma empresa/filtro.
 - A distribuição oferece mês atual e dois meses anteriores, com possível atraso
   de disponibilização. O filtro por período é local; uma rodada concluída significa
   que os documentos atualmente distribuídos foram recebidos, não comprova que
   um período fora dessa janela esteja completo. Cache já obtido é preservado.
 
-Durante as 12 horas, o comando reexporta os lotes locais sem consulta remota.
-Preserve `api_sef/estado.json` junto aos lotes. Se outra instalação usar a mesma
-conta, seus intervalos também precisam ser coordenados.
+Durante as 12 horas, o aplicativo reexporta os lotes locais sem consulta remota.
+O estado NSU fica na área interna do aplicativo, fora da pasta da empresa. Se
+outra instalação usar a mesma conta, seus intervalos também precisam ser coordenados.
 
 ## Integridade e dados locais
 
@@ -56,6 +69,7 @@ arquivo temporário com chave cifrada por senha aleatória, removido após carre
 o contexto. Erros não reproduzem o caminho do certificado nem dados de requisição.
 Certificados e `Downloads/` estão excluídos do Git.
 
-80 testes automatizados aprovados, incluindo 15 novos para SOAP, gzip, assinatura,
-normalização, erro de certificado, continuidade, falhas, cancelamento e intervalos.
-Os testes usam documentos sintéticos, sem certificado ou XML de produção.
+Os testes automatizados cobrem SOAP, gzip, assinatura, normalização, erro de
+certificado, continuidade, falhas, cancelamento, intervalos, integração dos jobs,
+relatórios, valores decimais e células textuais. Usam documentos sintéticos, sem
+certificado ou XML de produção. A validação manual real é registrada separadamente.

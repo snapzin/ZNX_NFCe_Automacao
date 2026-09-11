@@ -499,7 +499,7 @@ async def importar_clientes(payload: dict):
 
 
 def _filtrar_clientes_por_login(todos_clientes: list[dict], tipo_login: str) -> list[dict]:
-    if tipo_login not in {"usuario_senha", "certificado_api"}:
+    if not isinstance(tipo_login, str) or tipo_login not in {"usuario_senha", "certificado_api"}:
         raise HTTPException(400, "Escolha API com certificado A1 ou acesso ao portal")
     selected = [c for c in todos_clientes if c.get("ativo", True)]
     if not selected:
@@ -526,9 +526,16 @@ async def start_execution(request: Request, body: dict):
         raise HTTPException(400, str(exc)) from None
     from types import SimpleNamespace
     settings = SimpleNamespace(**{key: getattr(config, key) for key in default_values()})
+    settings.CACHE_NFCE = str(Path(config.__file__).resolve().parent / "cache_nfce")
     tipo_login = body.get("tipoLogin", "usuario_senha")
     certificado = credenciais = None
     if tipo_login == "certificado_api":
+        from datetime import date
+        today = date.today()
+        month_index = today.year * 12 + today.month - 1 - 2
+        earliest = date(month_index // 12, month_index % 12 + 1, 1)
+        if params.data_inicio < earliest.isoformat() or params.data_fim > today.isoformat():
+            raise HTTPException(400, f"A API distribui o mês atual e os dois anteriores. Escolha um período entre {earliest.strftime('%d/%m/%Y')} e {today.strftime('%d/%m/%Y')}")
         auth_body = body.get("certificado")
         if (not isinstance(auth_body, dict) or not isinstance(auth_body.get("arquivo"), str)
                 or not auth_body["arquivo"].strip() or not isinstance(auth_body.get("senha"), str)):
@@ -595,7 +602,7 @@ async def start_execution(request: Request, body: dict):
         finally:
             job.progress = {**job.progress, "stage": "Gerando relatórios Excel"}
             try:
-                sat_logger.info("Gerando relatório por empresa e consolidado")
+                sat_logger.info("Gerando relatório na pasta de cada empresa")
                 reports = gerar_execucao(params, job.resultado["resultados"], settings.PASTA_SAIDA, job_id, final_status)
                 job.resultado["relatorios"] = reports
                 if reports["erros"]:
@@ -645,22 +652,20 @@ async def get_job_file(job_id: str, tipo: str, cnpj: str = ""):
     if job is None or job.status == "running" or not job.resultado:
         raise HTTPException(404, "Resultado não disponível")
     reports = job.resultado.get("relatorios", {})
-    if tipo == "consolidado":
-        value = reports.get("consolidado")
-    elif tipo == "cliente":
+    if tipo == "cliente":
         value = reports.get("clientes", {}).get(cnpj)
-    elif tipo == "relatorios":
-        value = reports.get("pasta")
+    elif tipo == "relatorio":
+        value = reports.get("pastas", {}).get(cnpj, {}).get("relatorio")
     elif tipo == "xml":
-        value = next((r.get("pasta") for r in job.resultado["resultados"] if r["cnpj"] == cnpj), None)
+        value = reports.get("pastas", {}).get(cnpj, {}).get("xml")
     else:
         raise HTTPException(400, "Tipo de arquivo inválido")
     if not value or not Path(value).exists():
         raise HTTPException(404, "Arquivo ou pasta não disponível")
     path = Path(value).resolve()
-    if tipo in {"consolidado", "cliente"} and (path.suffix.lower() != ".xlsx" or not path.is_file()):
+    if tipo == "cliente" and (path.suffix.lower() != ".xlsx" or not path.is_file()):
         raise HTTPException(400, "Relatório inválido")
-    if tipo in {"xml", "relatorios"} and not path.is_dir():
+    if tipo in {"xml", "relatorio"} and not path.is_dir():
         raise HTTPException(400, "Pasta inválida")
     return {"path": str(path)}
 

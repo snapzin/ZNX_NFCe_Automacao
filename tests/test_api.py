@@ -7,7 +7,9 @@ import pytest
 from fastapi.testclient import TestClient
 from openpyxl import Workbook, load_workbook
 from api import server
-from app.automation import sat_automacao
+from app.automation import sat_automacao, sat_nfce_job
+from app.automation.sat_nfce_api import ErroAPI
+from app.automation.sat_nfce_download import ResultadoAPI
 from app.automation.sat_downloader import FluxoNaoMapeado
 from app.automation.sat_auth import resultado, check_cancel
 
@@ -15,6 +17,7 @@ from app.automation.sat_auth import resultado, check_cancel
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     monkeypatch.setattr(server.config, "XLSX_PATH", str(tmp_path / "clientes.xlsx"))
+    monkeypatch.setattr(server.config, "PASTA_SAIDA", str(tmp_path / "Downloads"))
     monkeypatch.setattr(server, "_API_TOKEN", "test-session-token")
     session = MagicMock()
     session.autenticar.return_value = resultado("SUCCESS")
@@ -170,4 +173,80 @@ def test_malformed_credentials_rejected_safely(client, credentials):
     response = client.post("/executar", json={"credenciais": credentials})
     assert response.status_code == 400
     assert "do-not-echo" not in response.text
+    assert not server.JOBS
+
+
+def api_body(tmp_path):
+    path = tmp_path / "do-not-echo.pfx"
+    path.write_bytes(b"synthetic-placeholder")
+    return {"tipoLogin": "certificado_api", "certificado": {"arquivo": str(path), "senha": "do-not-echo"}}
+
+
+def test_api_job_single_certificate_continues_after_client_denied(client, tmp_path, monkeypatch, caplog):
+    opens = []
+    @contextmanager
+    def open_api(cert):
+        opens.append(True)
+        yield object()
+    monkeypatch.setattr(sat_nfce_job, "abrir_api", open_api)
+    def download(api, **kwargs):
+        code = "8002" if kwargs["cnpj"].startswith("12") else "117"
+        kwargs["on_response"](code)
+        folder=tmp_path/kwargs["cnpj"]/"periodo"/"ator_1"
+        folder.mkdir(parents=True)
+        return ResultadoAPI("pendente" if code=="8002" else "ok",code,"Sem vínculo" if code=="8002" else "Sem documentos",pasta=str(folder))
+    monkeypatch.setattr(sat_nfce_job,"baixar_periodo",download)
+    client.post("/clientes",json={"clientes":[customer(),customer(documento="22345678000195")]})
+    jobid=client.post("/executar",json=api_body(tmp_path)).json()["jobId"]
+    data=wait_job(client,jobid)
+    assert len(opens)==1
+    assert data["status"]=="erro" and data["resultado"]["erro"]==1 and data["resultado"]["ok"]==1
+    assert not data["resultado"]["resultados"][0]["authenticated"]
+    assert data["resultado"]["resultados"][1]["authenticated"]
+    assert set(data["resultado"]["relatorios"])=={"clientes","pastas","erros"}
+    assert "do-not-echo" not in str(data)+caplog.text
+    assert "do-not-echo" not in client.get("/config").text
+    assert client.get(f"/executar/{jobid}/arquivo?tipo=cliente&cnpj=22345678000195").status_code==200
+    assert client.get(f"/executar/{jobid}/arquivo?tipo=cliente&cnpj=wrong").status_code==404
+    assert client.get(f"/executar/{jobid}/arquivo?tipo=../secret").status_code==400
+
+
+def test_api_cached_result_does_not_claim_remote_authentication(client,tmp_path,monkeypatch):
+    @contextmanager
+    def open_api(cert):
+        yield object()
+    monkeypatch.setattr(sat_nfce_job,"abrir_api",open_api)
+    monkeypatch.setattr(sat_nfce_job,"baixar_periodo",lambda *a,**k: ResultadoAPI("ok","118","Cache local",from_cache=True))
+    client.post("/clientes",json={"clientes":[customer()]})
+    data=wait_job(client,client.post("/executar",json=api_body(tmp_path)).json()["jobId"])
+    assert data["status"]=="ok"
+    assert not data["authentication"]["success"]
+    assert data["resultado"]["resultados"][0]["origem"]=="cache"
+    assert not data["resultado"]["resultados"][0]["authenticated"]
+
+
+def test_invalid_certificate_fails_job_without_leaking_path(client,tmp_path):
+    client.post("/clientes",json={"clientes":[customer()]})
+    data=wait_job(client,client.post("/executar",json=api_body(tmp_path)).json()["jobId"])
+    assert data["status"]=="erro"
+    assert data["authentication"]["error_type"]=="CERTIFICATE_ERROR"
+    assert "do-not-echo" not in str(data)
+    assert data["resultado"]["relatorios"]["clientes"]["12345678000195"]
+
+
+def test_report_failure_is_visible(client,tmp_path,monkeypatch):
+    monkeypatch.setattr(server,"gerar_execucao",lambda *a: (_ for _ in ()).throw(OSError("do-not-echo")))
+    client.post("/clientes",json={"clientes":[customer()]})
+    data=wait_job(client,client.post("/executar",json=api_body(tmp_path)).json()["jobId"])
+    assert data["resultado"]["report_error"]
+    assert "do-not-echo" not in str(data)
+
+
+def test_api_rejects_period_outside_distribution_window(client,tmp_path):
+    client.post("/clientes",json={"clientes":[customer()]})
+    body=api_body(tmp_path)
+    body.update(dataInicio="1900-01-01",dataFim="1900-01-31")
+    assert client.post("/executar",json=body).status_code==400
+    body.update(dataInicio="2999-01-01",dataFim="2999-01-31")
+    assert client.post("/executar",json=body).status_code==400
     assert not server.JOBS

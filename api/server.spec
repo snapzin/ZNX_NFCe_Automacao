@@ -24,6 +24,8 @@ hiddenimports += [
     "h11", "h11._readers", "h11._writers",
     "email.mime.multipart", "email.mime.text",
     "app.automation.sat_automacao", "app.automation.sat_auth",
+    "app.automation.sat_nfce_api", "app.automation.sat_nfce_download", "app.automation.sat_nfce_xml",
+    "app.automation.sat_nfce_job", "app.reports.nfce", "requests_pkcs12", "cryptography", "defusedxml", "lxml.etree",
     "app.automation.sat_http", "requests", "bs4", "soupsieve", "app.automation.sat_downloader", "app.automation.sat_session", "app.config.config_defaults",
 ]
 

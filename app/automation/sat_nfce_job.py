@@ -1,10 +1,12 @@
 """Um A1 por execução; falhas de vínculo são registradas por empresa."""
 import logging
+from pathlib import Path
 
 from app.automation.sat_auth import AuthResult, ExecucaoCancelada, check_cancel
 from app.automation.sat_automacao import ResultadoCNPJ
 from app.automation.sat_nfce_api import abrir_api, ErroAPI
 from app.automation.sat_nfce_download import baixar_periodo
+from app.output_layout import nomes_saida, pastas_empresa
 
 log = logging.getLogger("sat")
 
@@ -20,6 +22,7 @@ def executar_api(params, cancel_event=None, *, config, certificado, on_progress=
             on_progress(index, total, client["documento"] if client else "", name, message, results)
 
     check_cancel(cancel_event)
+    output_names = nomes_saida(params.clientes)
     progress(0, None, "Preparando certificado A1 para a API NFC-e")
     try:
         with abrir_api(certificado) as api:
@@ -38,8 +41,11 @@ def executar_api(params, cancel_event=None, *, config, certificado, on_progress=
 
                 progress(index, client, "Consultando NFC-e emitidas com o certificado do contador")
                 try:
+                    _, _, xml_folder = pastas_empresa(config.PASTA_SAIDA, output_names[client["documento"]])
+                    cache_root = Path(config.CACHE_NFCE) / client["documento"]
                     data = baixar_periodo(api, cnpj=client["documento"], inicio=params.data_inicio,
-                        fim=params.data_fim, pasta_saida=config.PASTA_SAIDA, cancel_event=cancel_event,
+                        fim=params.data_fim, pasta_saida=xml_folder, pasta_cache=cache_root,
+                        cancel_event=cancel_event,
                         on_step=lambda message: progress(index, client, message), on_response=response)
                     status = "erro" if data.codigo in {"8002", "280", "281", "283", "284", "285", "286", "489", "215"} else data.status
                     item = ResultadoCNPJ(client["documento"], client["nome"], status,

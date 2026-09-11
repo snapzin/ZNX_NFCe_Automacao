@@ -1,4 +1,4 @@
-"""Excel por cliente e consolidado, seguindo o relatório da automação NFSe."""
+"""Excel dentro da pasta de cada empresa, seguindo o relatório da automação NFSe."""
 from collections import defaultdict
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
@@ -11,6 +11,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from app.automation.sat_nfce_xml import preparar_xml
+from app.output_layout import nomes_saida, pastas_empresa
 
 NS = {"n": "http://www.portalfiscal.inf.br/nfe"}
 BLUE, TEAL, PALE, WHITE = "17324D", "087F8C", "EAF3F8", "FFFFFF"
@@ -145,7 +146,7 @@ EVENT_COLUMNS = [
 
 def read_client(folder, cnpj, inicio, fim):
     notes, items, seen = [], [], set()
-    for path in sorted((folder / "NFCe").glob("*.xml")):
+    for path in sorted(folder.glob("NFCe_*.xml")):
         root = parse(preparar_xml(parse(path.read_bytes())))
         inf = root.find("n:NFe/n:infNFe", NS)
         if inf is None or txt(inf, "n:ide/n:mod") != "65":
@@ -156,8 +157,10 @@ def read_client(folder, cnpj, inicio, fim):
         seen.add(key)
         emit_doc = txt(inf, "n:emit/n:CNPJ")
         issued = txt(inf, "n:ide/n:dhEmi")
-        if emit_doc != cnpj or not inicio <= issued[:10] <= fim:
-            raise ValueError("XML fora da empresa ou período")
+        if emit_doc != cnpj:
+            raise ValueError("XML pertence a outra empresa")
+        if not inicio <= issued[:10] <= fim:
+            continue
         totals = inf.find("n:total/n:ICMSTot", NS)
         note = dict(numero=txt(inf,"n:ide/n:nNF"), serie=txt(inf,"n:ide/n:serie"), emissao=issued,
             chave=key, arquivo=path.name, valor=number(totals,"n:vNF",True),
@@ -182,11 +185,10 @@ def read_client(folder, cnpj, inicio, fim):
             items.append(item)
     events, event_ids = [], set()
     # Inclui eventos posteriores vinculados às notas do período, se já distribuídos.
-    cache = folder.parents[1] / "api_sef"
-    sources = list(cache.glob("lote_*.xml")) if cache.exists() else list((folder / "Eventos").glob("*.xml"))
+    sources = list(folder.glob("Evento_*.xml"))
     for path in sorted(sources):
         root = parse(path.read_bytes())
-        docs = [(group[0], group.get("NSU", "")) for group in root if len(group) == 1 and group[0].tag.endswith("}procEventoNFe")] if root.tag == "loteDistNFCeSC" else [(root, "")]
+        docs = [(root, path.stem.rsplit("_", 1)[-1])]
         for doc, nsu in docs:
             inf = doc.find("n:evento/n:infEvento", NS)
             if inf is None:
@@ -226,7 +228,7 @@ def save(wb, path):
 
 def gerar_cliente(folder, nome, cnpj, inicio, fim, resultado, destino):
     notes, items, events = read_client(Path(folder), cnpj, inicio, fim)
-    if len(notes) != resultado.get("notas", len(notes)):
+    if resultado.get("status") != "erro" and len(notes) != resultado.get("notas", len(notes)):
         raise ValueError("Contagem do relatório diverge do download")
     cancelled = [n for n in notes if n["situacao"] == "Cancelada"]
     gross = sum((n["valor"] for n in notes), Decimal(0))
@@ -275,41 +277,24 @@ def gerar_cliente(folder, nome, cnpj, inicio, fim, resultado, destino):
 
 
 def gerar_execucao(params, results, pasta_saida, job_id, status):
-    """Inclui também erros, pendências e clientes não processados no consolidado."""
-    dest = Path(pasta_saida).resolve()/"Relatorios"/f"{params.data_inicio}_a_{params.data_fim}"/job_id
+    """Cria somente Empresa/Relatorio e Empresa/XMLs para cada cliente."""
     mapped = {r["cnpj"]:r for r in results}
-    rows, files, errors = [], {}, []
+    output_names = nomes_saida(params.clientes)
+    files, folders, errors = {}, {}, []
     for client in params.clientes:
         cnpj, name = client["documento"], client["nome"]
         result = mapped.get(cnpj, {})
-        row = dict(nome=name, cnpj=cnpj, status=result.get("status","não processado"),
-                   message=result.get("message","Execução interrompida antes deste cliente"),
-                   origem=result.get("origem",""), ultimo_nsu=str(result.get("ultimo_nsu","")),
-                   conferencia="Sem relatório de XML", **{k: "" for k in ("notas","eventos_periodo","canceladas","valor","valor_canceladas","valor_sem_cancelamento")})
-        if result.get("pasta"):
-            try:
-                path=dest/f"Relatorio_{cnpj}.xlsx"
-                totals=gerar_cliente(result["pasta"],name,cnpj,params.data_inicio,params.data_fim,result,path)
-                row.update(totals)
-                for key in ("valor","valor_canceladas","valor_sem_cancelamento"):
-                    row[key]=Decimal(row[key])
-                row["conferencia"]="XMLs conferidos" if result["status"]=="ok" else "Parcial: conferir pendência"
-                files[cnpj]=str(path)
-            except Exception:
-                errors.append(cnpj)
-                row["conferencia"]="Falha ao gerar relatório; XMLs preservados"
-        rows.append(row)
-    wb=Workbook()
-    ws=wb.active
-    ws.title="Consolidado"
-    columns=[("Empresa",38,"nome","text"),("CNPJ",20,"cnpj","text"),("Resultado",19,"status","text"),
-        ("NFC-e",12,"notas","int"),("Eventos no período",19,"eventos_periodo","int"),
-        ("Canceladas identificadas",24,"canceladas","int"),("Valor das NFC-e",22,"valor","money"),
-        ("Valor canceladas",22,"valor_canceladas","money"),("Valor sem cancelamento",26,"valor_sem_cancelamento","money"),
-        ("Origem",14,"origem","text"),("Último NSU",18,"ultimo_nsu","text"),
-        ("Conferência dos XMLs",40,"conferencia","text"),("Detalhes da execução",70,"message","text")]
-    table(ws,"ZNX • Relatório consolidado NFC-e",
-          f"Período {params.data_inicio} a {params.data_fim} | Execução {job_id} · {status} | {len(params.clientes)} empresa(s)", columns, rows)
-    path=dest/"Relatorio_Consolidado.xlsx"
-    save(wb,path)
-    return {"consolidado":str(path),"clientes":files,"pasta":str(dest),"erros":errors}
+        root, report_folder, xml_folder = pastas_empresa(pasta_saida, output_names[cnpj])
+        report_folder.mkdir(parents=True, exist_ok=True)
+        xml_folder.mkdir(parents=True, exist_ok=True)
+        effective = {"cnpj": cnpj, "nome": name, "status": "não processado",
+                     "message": "Execução interrompida antes deste cliente", "notas": 0, **result}
+        try:
+            path = report_folder / f"Relatorio_NFCe_{params.data_inicio}_a_{params.data_fim}.xlsx"
+            source_folder = Path(result.get("pasta") or xml_folder)
+            gerar_cliente(source_folder, name, cnpj, params.data_inicio, params.data_fim, effective, path)
+            files[cnpj] = str(path)
+        except Exception:
+            errors.append(cnpj)
+        folders[cnpj] = {"empresa": str(root), "relatorio": str(report_folder), "xml": str(xml_folder)}
+    return {"clientes": files, "pastas": folders, "erros": errors}

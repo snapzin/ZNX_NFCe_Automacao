@@ -1,0 +1,9 @@
+{
+  "versao": "0.5.0",
+  "instalador": "electron\\dist\\ZNX-SAT-Setup-0.5.0.exe",
+  "bytes": 103283670,
+  "sha256": "1393120426654b75d6537fee4aa76b189c9b8aa57e23e1c25d8e1364e5c6a97c",
+  "entrega": "electron\\dist\\ZNX-SAT-0.5.0-Entrega.zip",
+  "sha256_entrega": "529f1cc2eadbc714d3d4b048f7c6b4a3365a3e7379cc5ba7a8f222de27d7a49c",
+  "certificado_e_configuracoes_locais_excluidos": true
+}

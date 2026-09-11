@@ -26,12 +26,20 @@ def main():
             page.add_init_script("""
               window.savedClients = [];
               window.electronAPI = {
+                selectCertificate: async () => 'C:/synthetic/hidden-name.pfx',
+                openResult: async (...args) => { window.openedResult = args; return {ok:true}; },
                 apiCall: async (method, endpoint, body) => {
                   if (endpoint === '/clientes') {
                     if (method === 'POST') window.savedClients = body.clientes;
                     return {clientes:window.savedClients, salvos:window.savedClients.length};
                   }
                   if (endpoint === '/executar') { window.sentJob = body; return {jobId:'ui-test'}; }
+                  if (endpoint.endsWith('/status') && window.sentJob?.tipoLogin === 'certificado_api') return {
+                    status:'ok', logs:[], progress:{total:1, processed:1, clients:[{cnpj:'12345678000195', nome:'Empresa UI', status:'ok', notas:2, eventos:1}]},
+                    resultado:{notas:2,eventos:1,total:1,resultados:[{cnpj:'12345678000195',nome:'Empresa UI',notas:2,eventos:1,pasta:'C:/output'}],
+                      relatorios:{clientes:{'12345678000195':'C:/output/Empresa/Relatorio/Cliente.xlsx'},
+                        pastas:{'12345678000195':{relatorio:'C:/output/Empresa/Relatorio',xml:'C:/output/Empresa/XMLs'}},erros:[]}}
+                  };
                   if (endpoint.endsWith('/status')) return {
                     status:'pendente', logs:[], progress:{total:1, processed:1,
                       clients:[{cnpj:'12345678000195', nome:'Empresa UI', status:'pendente',
@@ -55,6 +63,21 @@ def main():
             page.wait_for_function("window.savedClients.length === 1")
             assert page.evaluate("Object.keys(window.savedClients[0]).sort().join(',')") == "ativo,documento,nome"
             page.get_by_role("button", name="Executar", exact=True).click()
+            assert page.get_by_label("Forma de acesso",exact=True).input_value()=="certificado_api"
+            page.get_by_role("button",name="Selecionar certificado A1",exact=True).click()
+            password=page.get_by_label("Senha do certificado (somente nesta execução)",exact=True)
+            assert password.get_attribute("type")=="password"
+            password.fill("synthetic-certificate-password")
+            page.get_by_role("button",name="Executar agora",exact=True).click()
+            page.wait_for_function("window.sentJob?.certificado?.senha === 'synthetic-certificate-password'")
+            assert not page.evaluate("'credenciais' in window.sentJob")
+            assert password.input_value()==""
+            page.get_by_role("button",name="Relatório da empresa",exact=True).click()
+            page.wait_for_function("window.openedResult?.[1] === 'cliente' && window.openedResult?.[2] === '12345678000195'")
+            assert "hidden-name" not in page.locator("body").inner_text()
+            assert "synthetic-certificate-password" not in page.locator("body").inner_text()
+            page.screenshot(path=str(root.parent.parent / 'docs/interface_api_relatorios.png'),full_page=True)
+            page.get_by_label("Forma de acesso",exact=True).select_option("usuario_senha")
             page.get_by_label("Usuário SAT", exact=True).fill("ui-test-user")
             page.get_by_label("Senha SAT (somente nesta execução)", exact=True).fill("ui-test-password")
             page.get_by_role("button", name="Executar agora", exact=True).click()
@@ -67,6 +90,7 @@ def main():
             assert "ui-test-password" not in page.locator("body").inner_text()
             assert not errors, errors
             print(json.dumps({"customer_form": True, "only_name_cnpj": True,
+                              "certificate_default_and_ephemeral": True, "two_output_folders": True,
                               "pending_not_success": True, "js_errors": 0}))
         finally:
             browser.close()

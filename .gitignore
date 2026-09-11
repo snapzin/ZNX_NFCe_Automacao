@@ -49,6 +49,7 @@ clientes_credenciais.json
 *.pem
 clientes_selecao.json
 Downloads/
+cache_nfce/
 .pytest_cache/
 electron/renderer-dist/
 *.log
