@@ -1,3 +1,33 @@
+# Teste posterior com A1 — API oficial
+
+Certificado aceito e acesso autorizado ao CNPJ 35.693.867/0001-54. Baixados
+1.187 XML de NFC-e e 9 XML de eventos de agosto/2026. Digest e assinatura RSA
+dos 1.196 documentos conferidos após tratamento da indentação do lote da SEF.
+Último NSU 11962; lotes originais e checkpoint preservados. ZIP sem certificado.
+
+80 testes aprovados (15 novos), com dois avisos de depreciação existentes no
+TestClient/AnyIO. Implementação disponível no comando `tools/baixar_nfce_api.py`;
+interface e instalador 0.4.0 não foram alterados neste teste. Consulte API_NFCE.md
+e TESTE_CERTIFICADO_API.json.
+
+# Versão 0.4.0 — HTTP sem navegador
+
+65 testes aprovados, incluindo cookies/sessão compartilhada, formulários e estados
+ASP.NET, restrição de origem, credenciais omitidas e pendência por Turnstile.
+Login por requests confirmado com a conta autorizada. Teste do cliente
+35.693.867/0001-54 (agosto/2026): login confirmado, CAPTCHA requerido, zero XML,
+busca fiscal não enviada. Evidência em TESTE_CLIENTE_HTTP.json.
+
+O backend usa HTTP e a distribuição PyInstaller exclui Playwright. A API oficial
+SOAP de XML exige certificado e ainda não estava integrada naquela versão. Consulte HTTP_SAT.md.
+
+Interface compilada e Electron real (desenvolvimento e empacotado) aprovados:
+abre sem licença, campos usuário/senha presentes, configuração HTTP disponível,
+Clientes acessível e token Electron/API confirmado.
+
+Instalador 0.4.0: `electron/dist/ZNX-SAT-Setup-0.4.0.exe` (97310115 bytes).
+SHA-256: `cd445ef000ae0182b8589d9badcb7ab46adeb6e013c8c426a5be2670c6363b3f`.
+
 # Versão 0.3.0 — usuário e senha
 
 Em 11/09/2026, o navegador real preencheu os campos SAT observados, clicou Entrar

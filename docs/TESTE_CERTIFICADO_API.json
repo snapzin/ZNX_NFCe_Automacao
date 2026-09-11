@@ -1,0 +1,19 @@
+{
+  "data_conferencia": "2026-09-11T16:52:29.986720+00:00",
+  "cnpj": "35693867000154",
+  "inicio": "2026-08-01",
+  "fim": "2026-08-31",
+  "contagens": {
+    "eventos": 9,
+    "assinaturas_conferidas": 1196,
+    "notas": 1187
+  },
+  "problemas": {},
+  "primeira_data": "2026-08-01",
+  "ultima_data": "2026-08-31",
+  "criterio_eventos": "Data de ocorrencia do evento",
+  "integridade": "Digest e assinatura RSA conferidos. Nao substitui validacao fiscal ou da cadeia ICP-Brasil.",
+  "tratamento": "Indentacao do lote removida apenas quando a assinatura original confirma o resultado. Lotes originais preservados no cache local.",
+  "zip": "Downloads\\35693867000154\\NFCe_35693867000154_2026-08.zip",
+  "sha256_zip": "12c5d4e84e33b8cbe18a4c18cabc5b5745b6ac3a331a6e0a5447328bac2e2461"
+}

@@ -1,110 +1,90 @@
-# ZNX NFC-e / SAT — usuário e senha
+# ZNX NFC-e / SAT — API e HTTP sem navegador
 
-Versão 0.3.0. Aplicação separada da NFSe original, sem licença ou ativação.
+Versão 0.4.0. Aplicativo separado da NFSe original, sem licença ou ativação.
+A comunicação com o portal SAT usa `requests.Session`, cookies e formulários
+ASP.NET em memória. A execução não inicia Chrome nem Playwright.
 
-O acesso ao SAT utiliza **um único login com usuário e senha do contador por execução**.
-A planilha contém somente **NOME** e **CNPJ** das empresas que serão consultadas.
-Não há usuário, senha ou certificado individual no cadastro de clientes.
+## Teste com certificado A1 — concluído
 
-## Usar o aplicativo
+O certificado fornecido foi aceito pela API oficial da SEF para o CNPJ
+**35.693.867/0001-54**. Foram obtidas **1.187 NFC-e e 9 eventos de agosto/2026**,
+sem navegador. Os XMLs exportados tiveram digest e assinatura RSA conferidos.
+Isso não substitui validação fiscal ou da cadeia de certificação.
 
-1. Abra `INICIAR.bat` (desenvolvimento) ou instale
-   `electron/dist/ZNX-SAT-Setup-0.3.0.exe`.
-2. Na aba **Clientes**, importe sua planilha NOME/CNPJ e clique em **Salvar**.
-   Use [modelo_clientes.xlsx](docs/modelo_clientes.xlsx) como modelo. Marque os
-   clientes desejados como ativos na interface; a coluna ATIVO não é necessária
-   na planilha. Os dois cabeçalhos podem estar em qualquer ordem.
-3. Na aba **Executar**, informe o usuário e a senha do SAT. A senha fica oculta,
-   vale apenas para a execução atual e é apagada do campo ao iniciar. Nenhuma
-   credencial é salva no cadastro, configuração, planilha ou instalador.
-4. Escolha o período e clique em **Executar agora**.
-
-A execução abre uma sessão de navegador, preenche **Usuário** e **Senha** e clica em **Entrar**
-na página oficial e observa a resposta. Após confirmar o acesso do contador,
-o processamento dos CNPJs usa a mesma sessão, sem refazer login por empresa.
-O acesso do contador e os resultados das empresas são apresentados separadamente.
-
-**Estado atual:** login com usuário e senha observado na conta autorizada em
-11/09/2026, com chegada à lista de aplicações. O indicador dessa tela está
-centralizado na configuração. Seleção de perfil e consulta/download por CNPJ
-continuam pendentes de mapeamento; o aplicativo não informa downloads concluídos
-apenas porque o login terminou.
-
-URL inicial: https://sat.sef.sc.gov.br/tax.NET/Login.aspx
-
-## Confirmar o fluxo real
-
-`SAT_SELECTOR_LOGIN_OK` combina o rodapé da aplicação e o controle
-"Buscar aplicações...", observados na sessão autenticada. A confirmação também
-exige origem oficial e formulário de login ausente. Configurações antigas com
-esse indicador vazio recebem o padrão observado. Mudança de URL sozinha não
-confirma autenticação.
-
-Para manter o navegador aberto durante a observação manual:
+O cliente SOAP, a continuação por NSU e a exportação estão implementados em Python.
+**Este fluxo é executado pelo terminal; a tela e o instalador 0.4.0 ainda usam
+usuário/senha do portal.** Consulte [API com A1](docs/API_NFCE.md) e
+[resultado do teste](docs/TESTE_CERTIFICADO_API.json).
 
 ```powershell
-.\.venv\Scripts\python.exe tools\test_sat_login.py
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe tools/baixar_nfce_api.py --cnpj 35693867000154 --inicio 2026-08-01 --fim 2026-08-31
 ```
 
-O utilitário pede usuário e senha com entrada oculta e aguarda Enter antes de
-fechar a sessão. Não salva HTML, screenshots, cookies ou credenciais. O utilitário
-`tools/observe_sat_response.py` faz o mesmo teste e encerra automaticamente,
-mostrando apenas resultado estruturado e contagens dos indicadores.
+O terminal pede caminho e senha do A1 com entrada oculta. Não são gravados na
+configuração. O cache local permite reexportar o período durante a espera de
+12 horas da API, sem repetir consultas. Não apague o estado NSU para forçar consultas.
+
+## Teste anterior pelo portal — usuário e senha
+
+O login com usuário e senha foi confirmado por HTTP. A aplicação **NFe / NFCe -
+Consulta** foi aberta pelo link observado no menu, preservando os redirecionamentos.
+Ela apresenta **Cloudflare Turnstile obrigatório**. Quando isso acontece, o job
+registra `HUMAN_VALIDATION_REQUIRED`, sem enviar a busca nem informar arquivos baixados.
+
+Teste solicitado: CNPJ **35.693.867/0001-54**, período **01/08/2026 a 31/08/2026**.
+Naquele teste: login confirmado, **zero downloads**, busca fiscal não enviada devido à validação.
+Consulte [o resultado estruturado](docs/TESTE_CLIENTE_HTTP.json).
+
+A SEF disponibiliza uma [API oficial para download de XML NFC-e](https://www.sef.sc.gov.br/saiba-mais/web-service-para-download-de-nfce),
+que exige certificado digital do contador vinculado ao contribuinte. Usuário e
+senha do portal não substituem essa autenticação. O teste posterior com A1 acima
+confirmou o download. O transporte HTTP do portal não é essa API oficial.
+
+## Usar
+
+1. Abra `INICIAR.bat` ou instale `electron/dist/ZNX-SAT-Setup-0.4.0.exe`.
+2. Em **Clientes**, importe a planilha com **NOME** e **CNPJ**, salve e marque os clientes.
+   [Planilha modelo](docs/modelo_clientes.xlsx).
+3. Em **Executar**, informe usuário/senha do SAT e o período. A senha é apagada do
+   campo ao iniciar e não é salva em configuração, planilha, logs ou instalador.
+4. Confira separadamente o acesso do contador e o resultado de cada empresa.
+
+Uma sessão HTTP atende todos os clientes da execução. O captcha não é contornado,
+não há abertura automática de navegador e não são inventados documentos ou endpoints.
+Os botões Exportar/Exportar itens observados na consulta se referem a dados da nota;
+ainda não foi confirmado que entreguem os XML completos.
 
 ## Dados locais
 
-O XLSX salvo tem exatamente `NOME` e `CNPJ`. A seleção ativo/inativo continua em
-`clientes_selecao.json`, no formato existente. Colunas antigas de usuário/senha
-são ignoradas na importação, e o antigo `clientes_credenciais.json` não é lido.
-Arquivos legados existentes não são apagados automaticamente.
+XLSX contém exatamente NOME e CNPJ. A seleção fica em `clientes_selecao.json`.
+Credenciais antigas em colunas extras são ignoradas. Cookies e campos de estado
+ASP.NET ficam em memória e não são incluídos em diagnósticos. O token de sessão
+Electron/FastAPI continua protegendo a API local.
 
-Em desenvolvimento, os dados ficam na raiz do projeto. No aplicativo instalado,
-ficam no diretório `data` do produto SAT. `SAT_DATA_DIR` permite escolher outra pasta.
-O cadastro não é sincronizado com servidores externos. O token entre Electron e
-FastAPI permanece protegendo a comunicação local.
+## Desenvolvimento e validação
 
-Usuário e senha são enviados em memória somente para o job. O navegador usa
-contexto temporário, sem certificado digital. Logs e erros têm mensagens fixas;
-a senha não é devolvida pelos endpoints nem incluída em resultados.
-
-## Desenvolvimento e testes
-
-Pré-requisitos: Windows, Python 3.10+ (validado com 3.14), Node.js/npm e Google Chrome.
+Requer Python e Node.js/npm para desenvolvimento. Chrome/Playwright são usados
+somente pelos testes da interface; o backend empacotado não os inclui.
 
 ```powershell
-python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.\.venv\Scripts\python.exe -m pytest -q
 cd electron
-npm.cmd ci --no-audit --no-fund
-node node_modules/electron/install.js
-npm.cmd run dev
+npm.cmd run build:renderer
+cd ..
+.\.venv\Scripts\python.exe tools/smoke_renderer.py
+.\.venv\Scripts\python.exe tools/smoke_electron.py
 ```
 
-Na raiz:
+Teste manual HTTP (pede credenciais com entrada oculta):
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest -q
-.\.venv\Scripts\python.exe tools\inspect_sat_login.py
-.\.venv\Scripts\python.exe tools\smoke_renderer.py
-.\.venv\Scripts\python.exe tools\smoke_electron.py
-.\.venv\Scripts\python.exe tools\smoke_electron.py --packaged
+.\.venv\Scripts\python.exe tools/test_sat_cliente_http.py --cnpj 35693867000154 --inicio 2026-08-01 --fim 2026-08-31
 ```
 
-Os testes de autenticação usam dublês de Playwright, sem HTML fiscal inventado.
-O inspetor acessa a página pública sem enviar credenciais. O teste da interface
-usa IPC simulado; o teste Electron verifica a API real sem ativação. Os testes
-de interface exigem `npm.cmd run build:renderer`; `--packaged` exige o build completo.
+Build: `CONSTRUIR_INSTALADOR.bat`. Teste do pacote:
+`.\.venv\Scripts\python.exe tools/smoke_electron.py --packaged`.
 
-## Build
-
-Execute `CONSTRUIR_INSTALADOR.bat`. Ele roda testes, compila o backend com
-PyInstaller e gera o instalador Electron/NSIS, sem publicar releases.
-
-- Backend: `dist/server/server.exe` (acompanha `_internal`).
-- Instalador: `electron/dist/ZNX-SAT-Setup-0.3.0.exe`.
-
-Certificados, senhas, configuração e cadastros não são incluídos no pacote. O
-instalador não tem assinatura digital configurada. O mecanismo de atualização
-permanece opcional, por `SAT_UPDATE_FEED_URL`, sem usar releases NFSe.
-
-Detalhes da alteração: [docs/LOGIN_USUARIO_SENHA.md](docs/LOGIN_USUARIO_SENHA.md).
+Detalhes: [HTTP e API oficial](docs/HTTP_SAT.md). Registros de versões anteriores
+em outros documentos são históricos e não descrevem o transporte atual.

@@ -1,0 +1,32 @@
+{
+  "cnpj": "35693867000154",
+  "periodo": [
+    "2026-08-01",
+    "2026-08-31"
+  ],
+  "transporte": "HTTP sem navegador",
+  "authentication": [
+    {
+      "success": true,
+      "requires_user_selection": false,
+      "error_type": "",
+      "message": "Login realizado"
+    }
+  ],
+  "resultados": [
+    {
+      "cnpj": "35693867000154",
+      "nome": "Cliente de teste",
+      "status": "pendente",
+      "success": false,
+      "requires_user_selection": false,
+      "error_type": "HUMAN_VALIDATION_REQUIRED",
+      "message": "Login HTTP confirmado; SAT exige validação humana na consulta NFC-e",
+      "etapa": "consulta",
+      "authenticated": true,
+      "documentos": 0
+    }
+  ],
+  "documentos_baixados": 0,
+  "busca_fiscal_enviada": false
+}

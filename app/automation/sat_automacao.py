@@ -33,6 +33,13 @@ class ResultadoCNPJ:
     etapa: str = "consulta"
     authenticated: bool = False
     documentos: int = 0
+    notas: int = 0
+    eventos: int = 0
+    pasta: str = ""
+    ultimo_nsu: int = 0
+    proxima_consulta: str = ""
+    origem: str = ""
+    codigo: str = ""
 
 
 def preparar_parametros(data_inicio=None, data_fim=None, cnpjs=None, tipos=None,

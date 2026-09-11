@@ -63,6 +63,9 @@ except ImportError:
 
 from app.automation.sat_automacao import ExecucaoCancelada, executar_local, preparar_parametros
 from app.automation.sat_session import CredenciaisSAT
+from app.automation.sat_nfce_api import CertificadoAPI
+from app.automation.sat_nfce_job import executar_api
+from app.reports.nfce import gerar_execucao
 
 
 # =============================================================================
@@ -271,7 +274,10 @@ async def set_config(body: dict):
         temporary.write_text(novo, encoding="utf-8")
         temporary.replace(config_path)
 
-        importlib.reload(config)
+        # Recarrega exatamente o arquivo salvo, sem resolver outro config.py
+        # pelo sys.path nem reutilizar bytecode com o mesmo timestamp.
+        config.__file__ = str(config_path)
+        exec(compile(novo, str(config_path), "exec"), config.__dict__)
         if apply_defaults:
             apply_defaults(config)
 
@@ -493,8 +499,8 @@ async def importar_clientes(payload: dict):
 
 
 def _filtrar_clientes_por_login(todos_clientes: list[dict], tipo_login: str) -> list[dict]:
-    if tipo_login != "usuario_senha":
-        raise HTTPException(400, "O acesso ao SAT usa usuário e senha do contador")
+    if tipo_login not in {"usuario_senha", "certificado_api"}:
+        raise HTTPException(400, "Escolha API com certificado A1 ou acesso ao portal")
     selected = [c for c in todos_clientes if c.get("ativo", True)]
     if not selected:
         raise HTTPException(400, "Nenhum cliente ativo selecionado na aba Clientes")
@@ -507,7 +513,7 @@ async def start_execution(request: Request, body: dict):
     if any(j.status == "running" for j in JOBS.values()):
         raise HTTPException(409, "Já existe uma execução em andamento")
     if body.get("modo", "consulta") != "consulta":
-        raise HTTPException(400, "Use o fluxo de consulta com usuário e senha")
+        raise HTTPException(400, "Use o fluxo de consulta")
     _prune_jobs()
     clients = _filtrar_clientes_por_login(
         _clientes_atuais(),
@@ -520,14 +526,29 @@ async def start_execution(request: Request, body: dict):
         raise HTTPException(400, str(exc)) from None
     from types import SimpleNamespace
     settings = SimpleNamespace(**{key: getattr(config, key) for key in default_values()})
-    auth_body = body.get("credenciais") or {}
-    if not isinstance(auth_body, dict):
-        raise HTTPException(400, "Informe usuário e senha para acessar o SAT")
-    credenciais = CredenciaisSAT(auth_body.get("usuario", ""), auth_body.get("senha", ""))
-    try:
-        credenciais.validar()
-    except ValueError:
-        raise HTTPException(400, "Informe usuário e senha para acessar o SAT") from None
+    tipo_login = body.get("tipoLogin", "usuario_senha")
+    certificado = credenciais = None
+    if tipo_login == "certificado_api":
+        auth_body = body.get("certificado")
+        if (not isinstance(auth_body, dict) or not isinstance(auth_body.get("arquivo"), str)
+                or not auth_body["arquivo"].strip() or not isinstance(auth_body.get("senha"), str)):
+            raise HTTPException(400, "Selecione o certificado A1 e informe sua senha")
+        try:
+            file = Path(auth_body["arquivo"])
+            if file.suffix.lower() not in {".pfx", ".p12"} or not file.is_file():
+                raise ValueError()
+        except (OSError, ValueError):
+            raise HTTPException(400, "Arquivo A1 não encontrado ou formato inválido") from None
+        certificado = CertificadoAPI(auth_body["arquivo"], auth_body["senha"])
+    else:
+        auth_body = body.get("credenciais") or {}
+        if not isinstance(auth_body, dict):
+            raise HTTPException(400, "Informe usuário e senha para acessar o SAT")
+        credenciais = CredenciaisSAT(auth_body.get("usuario", ""), auth_body.get("senha", ""))
+        try:
+            credenciais.validar()
+        except ValueError:
+            raise HTTPException(400, "Informe usuário e senha para acessar o SAT") from None
     job_id = str(uuid.uuid4())[:8]
     job = Job(id=job_id, status="running")
     JOBS[job_id] = job
@@ -540,7 +561,11 @@ async def start_execution(request: Request, body: dict):
                         "stage": stage, "clients": done}
 
     def summary(results):
-        return {"modo": "consulta", "authentication": job.authentication, "resultados": results, "total": len(results),
+        return {"modo": "consulta", "tipoLogin": tipo_login, "authentication": job.authentication, "resultados": results, "total": len(results),
+                "selecionados": len(params.clientes), "nao_processados": len(params.clientes)-len(results),
+                "documentos": sum(r.get("documentos", 0) for r in results),
+                "notas": sum(r.get("notas", 0) for r in results),
+                "eventos": sum(r.get("eventos", 0) for r in results),
                 "ok": sum(r["status"] == "ok" for r in results),
                 "erro": sum(r["status"] == "erro" for r in results),
                 "pendente": sum(r["status"] == "pendente" for r in results)}
@@ -548,23 +573,42 @@ async def start_execution(request: Request, body: dict):
     def run_job():
         sat_logger = logging.getLogger("sat")
         sat_logger.addHandler(handler)
+        final_status = "erro"
         try:
-            results = executar_local(params, cancel_event=job.cancel_event,
-                                      config=settings, on_progress=progress, credenciais=credenciais,
-                                      on_auth=lambda result: setattr(job, "authentication", asdict(result)))
+            executor = executar_api if tipo_login == "certificado_api" else executar_local
+            auth_args = {"certificado": certificado} if tipo_login == "certificado_api" else {"credenciais": credenciais}
+            results = executor(params, cancel_event=job.cancel_event,
+                               config=settings, on_progress=progress, **auth_args,
+                               on_auth=lambda result: setattr(job, "authentication", asdict(result)))
             job.resultado = summary([asdict(r) for r in results])
-            job.status = ("cancelado" if job.cancel_event.is_set() else
+            final_status = ("cancelado" if job.cancel_event.is_set() else
                           "erro" if job.resultado["erro"] else
                           "pendente" if job.resultado["pendente"] else "ok")
         except ExecucaoCancelada:
             job.resultado = summary(job.progress["clients"])
-            job.status = "cancelado"
+            final_status = "cancelado"
         except Exception:
             sat_logger.error("Falha na execução SAT; credenciais e detalhes do navegador omitidos")
             job.resultado = summary(job.progress["clients"])
             job.resultado["message"] = "Falha na execução SAT"
-            job.status = "erro"
+            final_status = "erro"
         finally:
+            job.progress = {**job.progress, "stage": "Gerando relatórios Excel"}
+            try:
+                sat_logger.info("Gerando relatório por empresa e consolidado")
+                reports = gerar_execucao(params, job.resultado["resultados"], settings.PASTA_SAIDA, job_id, final_status)
+                job.resultado["relatorios"] = reports
+                if reports["erros"]:
+                    job.resultado["report_error"] = "Alguns relatórios não puderam ser gerados; XMLs preservados"
+                    if final_status == "ok":
+                        final_status = "pendente"
+            except Exception:
+                job.resultado["report_error"] = "Falha ao salvar relatórios; XMLs preservados"
+                sat_logger.error("Falha ao gerar relatórios Excel; detalhes sensíveis omitidos")
+                if final_status == "ok":
+                    final_status = "pendente"
+            job.status = final_status
+            job.progress = {**job.progress, "stage": "Execução " + final_status}
             sat_logger.removeHandler(handler)
 
     job.thread = threading.Thread(target=run_job, daemon=True)
@@ -592,6 +636,33 @@ async def get_job_status(job_id: str):
         resultado["resultado"] = job.resultado
 
     return resultado
+
+
+@app.get("/executar/{job_id}/arquivo")
+async def get_job_file(job_id: str, tipo: str, cnpj: str = ""):
+    """O Electron só abre artefatos registrados pelo job, nunca caminhos do renderer."""
+    job = JOBS.get(job_id)
+    if job is None or job.status == "running" or not job.resultado:
+        raise HTTPException(404, "Resultado não disponível")
+    reports = job.resultado.get("relatorios", {})
+    if tipo == "consolidado":
+        value = reports.get("consolidado")
+    elif tipo == "cliente":
+        value = reports.get("clientes", {}).get(cnpj)
+    elif tipo == "relatorios":
+        value = reports.get("pasta")
+    elif tipo == "xml":
+        value = next((r.get("pasta") for r in job.resultado["resultados"] if r["cnpj"] == cnpj), None)
+    else:
+        raise HTTPException(400, "Tipo de arquivo inválido")
+    if not value or not Path(value).exists():
+        raise HTTPException(404, "Arquivo ou pasta não disponível")
+    path = Path(value).resolve()
+    if tipo in {"consolidado", "cliente"} and (path.suffix.lower() != ".xlsx" or not path.is_file()):
+        raise HTTPException(400, "Relatório inválido")
+    if tipo in {"xml", "relatorios"} and not path.is_dir():
+        raise HTTPException(400, "Pasta inválida")
+    return {"path": str(path)}
 
 @app.post("/executar/{job_id}/cancelar")
 async def cancel_job(job_id: str):
