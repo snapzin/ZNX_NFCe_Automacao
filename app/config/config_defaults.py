@@ -21,22 +21,22 @@ def default_values() -> dict:
         "XLSX_PATH": "clientes.xlsx",
         "PASTA_SAIDA": "Downloads",
         "SAT_LOGIN_URL": SAT_LOGIN_URL,
+        "SAT_HTTP_TIMEOUT_S": 60,
         "CHROME_CHANNEL": "chrome",
         "CHROME_EXECUTABLE_PATH": "",
         "PLAYWRIGHT_HEADLESS": False,
         "PLAYWRIGHT_TIMEOUT_MS": 15000,
-        "PLAYWRIGHT_LOGIN_TIMEOUT_S": 45,
+        "PLAYWRIGHT_LOGIN_TIMEOUT_S": 120,
         # IDs observados no HTML público oficial em 10/09/2026.
+        "SAT_SELECTOR_FORMULARIO_LOGIN": "#LoginContainers",
         "SAT_SELECTOR_USUARIO": "#Body_pnlMain_rptLoginPanels_tbxUsername_0",
         "SAT_SELECTOR_SENHA": "#Body_pnlMain_rptLoginPanels_tbxUserPassword_0",
         "SAT_SELECTOR_ENTRAR": "#Body_pnlMain_rptLoginPanels_btnLogin_0",
         "SAT_SELECTOR_SELECAO_USUARIO": "h4.tit-pan-acc",
-        # TODO: confirmar indicadores na sessão real. Vazio impede falso sucesso.
-        "SAT_SELECTOR_LOGIN_OK": "",
+        # Aplicações autenticadas observadas em 11/09/2026; formulário deve estar ausente.
+        "SAT_SELECTOR_LOGIN_OK": 'body:has(#Body_ApplicationMasterFooter_hlkPolicy) a:has-text("Buscar aplicações...")',
         "SAT_SELECTOR_CREDENCIAIS_INVALIDAS": "",
         "SAT_SELECTOR_ERRO_PORTAL": "",
-        "LICENSE_ADMIN_URL": os.environ.get("NFSE_LICENSE_ADMIN_URL", "https://license-server-sigma-topaz.vercel.app/api/admin"),
-        "LICENSE_ADMIN_TOKEN": "",
     }
 
 
@@ -67,6 +67,9 @@ def apply_defaults(config_module: object, create_dirs: bool = True, **_) -> None
     for key, value in default_values().items():
         if getattr(config_module, key, None) is None:
             setattr(config_module, key, value)
+    # Migração da configuração anterior, cujo indicador ainda não fora observado.
+    if not config_module.SAT_SELECTOR_LOGIN_OK:
+        config_module.SAT_SELECTOR_LOGIN_OK = default_values()["SAT_SELECTOR_LOGIN_OK"]
     # Página inicial oficial, não substituível por URL de outro portal.
     config_module.SAT_LOGIN_URL = SAT_LOGIN_URL
     for key in PATH_KEYS:

@@ -1,4 +1,4 @@
-"""Teste manual opcional com conta autorizada; nenhuma credencial é gravada."""
+"""Teste manual do login único; mantém a sessão aberta para observação."""
 from dataclasses import asdict
 from getpass import getpass
 import json
@@ -7,27 +7,24 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.config.config_defaults import ensure_config_file, apply_defaults
-from app.automation.sat_auth import login_sat
-from playwright.sync_api import sync_playwright
+from app.automation.sat_session import abrir_sessao, CredenciaisSAT
 
 
 def main():
     sys.path.insert(0, str(ensure_config_file().parent))
     import config
     apply_defaults(config)
-    usuario = getpass("Usuário SAT de teste (entrada oculta): ")
-    senha = getpass("Senha SAT de teste (entrada oculta): ")
-    with sync_playwright() as pw:
-        browser = pw.chromium.launch(channel=config.CHROME_CHANNEL or None, headless=False)
-        try:
-            page = browser.new_page()
-            result = login_sat(page, usuario, senha, config=config, on_step=print)
+    usuario = getpass("Usuário SAT (entrada oculta): ")
+    senha = getpass("Senha SAT (entrada oculta): ")
+    credenciais = CredenciaisSAT(usuario, senha)
+    try:
+        with abrir_sessao(config, credenciais, None, print) as session:
+            result = session.autenticar()
             print(json.dumps(asdict(result), ensure_ascii=False, indent=2))
-            # As páginas permanecem abertas para observar a etapa desconhecida.
-            # Não exporta cookies, HTML, screenshots, valores ou traces da sessão.
-            input("Observe a página seguinte. Pressione Enter para fechar o navegador.")
-        finally:
-            browser.close()
+            print("Teste HTTP concluído; sessão encerrada sem navegador.")
+    except Exception:
+        print("Não foi possível concluir o teste. Confira o acesso ao SAT e a configuração.")
+        raise SystemExit(1) from None
 
 
 if __name__ == "__main__":

@@ -1,4 +1,52 @@
-# Validação realizada em 10/09/2026
+# Versão 0.3.0 — usuário e senha
+
+Em 11/09/2026, o navegador real preencheu os campos SAT observados, clicou Entrar
+e chegou à tela de aplicações. A versão final do módulo retornou:
+
+```json
+{"success": true, "requires_user_selection": false, "error_type": "", "message": "Login realizado"}
+```
+
+O indicador autenticado teve contagem 1, assim como rodapé e busca; formulário
+inicial ausente. Nenhuma seleção de perfil foi necessária nessa conta. Nenhuma
+consulta fiscal ou download foi submetido. Credenciais não foram salvas.
+
+49 testes automatizados passaram. Inspeção da página pública confirmou os três
+campos/controles de login únicos e visíveis, sem falso indicador de sucesso.
+Interface compilada aprovada: nome/CNPJ, senha global mascarada, limpa ao iniciar,
+requisição de usuário/senha e apresentação correta de pendências.
+
+Abertura Electron real em desenvolvimento: sem ativação, clientes acessíveis,
+comunicação autenticada com FastAPI. Consulte LOGIN_USUARIO_SENHA.md para escopo
+atual e limites do download ainda não mapeado.
+
+Backend e instalador 0.3.0 recompilados. Aplicação empacotada aprovada: abre sem
+licença, mostra usuário/senha, oferece cadastro de clientes e confirma o token
+Electron/FastAPI. A configuração embarcada contém o indicador de login observado
+e não oferece certificado.
+
+Instalador: `electron/dist/ZNX-SAT-Setup-0.3.0.exe` (123150200 bytes).
+SHA-256: `17dc1047cc4a405db42dfb3c47d9d93da939d2103c80993e804d14a64eb2f295`.
+
+# Validação histórica da versão 0.1.1 — remoção do licenciamento
+
+Solicitação atendida: aplicativo e API sem exigência de licença. Removidos o
+cliente remoto, endpoints de licença, painel de máquinas, tela de ativação,
+verificações antes de executar e sincronização com o antigo servidor. Cadastro
+local e proteção pelo token de sessão Electron/API permanecem.
+
+Validação local: 34 testes aprovados, Electron abre diretamente e permite acessar
+Clientes sem chave; interface compilada passou no teste de cadastro, senha mascarada
+e apresentação de pendências. O teste do Electron usa a API real sem simular licença.
+
+Backend e instalador recompilados. A aplicação empacotada também abriu diretamente,
+permitiu acessar Clientes e confirmou a comunicação autenticada com a API local.
+O módulo `license.py` não está presente no backend empacotado.
+
+Instalador daquela versão: `electron/dist/ZNX-SAT-Setup-0.1.1.exe` (123147971 bytes).
+SHA-256: `c7ec82507fe58fd738ecd155d4b4f5c21c03622dad7b4e327f4796db9392d887`.
+
+# Validação histórica da versão 0.1.0
 
 | Verificação | Resultado |
 | --- | --- |

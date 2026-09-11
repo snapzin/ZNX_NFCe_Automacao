@@ -10,6 +10,7 @@ import re
 import sys
 import threading
 import uuid
+import time as _time
 from collections import deque
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -19,7 +20,6 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-import requests
 import uvicorn
 
 # =============================================================================
@@ -62,48 +62,8 @@ except ImportError:
         apply_defaults(config, create_dirs=False)
 
 from app.automation.sat_automacao import ExecucaoCancelada, executar_local, preparar_parametros
+from app.automation.sat_session import CredenciaisSAT
 
-import importlib.util as _ilu
-import time as _time
-
-def _load_license_module():
-    # Procura license.py em varios locais: ao lado de server.py (dev) e, no app
-    # empacotado, ao lado do server.exe / dentro do bundle (_MEIPASS).
-    _cands = [Path(__file__).parent / "license.py"]
-    if getattr(sys, "frozen", False):
-        _cands.append(Path(sys.executable).parent / "license.py")
-        _meipass = getattr(sys, "_MEIPASS", None)
-        if _meipass:
-            _cands.append(Path(_meipass) / "license.py")
-    _p = next((c for c in _cands if c.exists()), None)
-    if _p is None:
-        logger.error("license.py nao encontrado. Procurei em: %s",
-                     ", ".join(str(c) for c in _cands))
-        return None
-    try:
-        _spec = _ilu.spec_from_file_location("license", _p)
-        _mod  = _ilu.module_from_spec(_spec)
-        _spec.loader.exec_module(_mod)
-        return _mod
-    except Exception as e:
-        logger.error("Falha ao carregar license.py (%s): %s", _p, e)
-        return None
-
-_lic = _load_license_module()
-if _lic:
-    license_activate   = _lic.activate
-    check_license      = _lic.check_license
-    validate_license_key = _lic.validate_key
-    load_key           = _lic.load_key
-    license_deactivate = _lic.deactivate
-    logger.info("Módulo de licença carregado.")
-else:
-    logger.error("LICENÇA: módulo não encontrado — execução BLOQUEADA.")
-    def license_activate(key): return False, "Módulo de licença não encontrado."
-    def check_license(key=None): return False, "Módulo de licença não encontrado."
-    def validate_license_key(key): return False, "Módulo de licença não encontrado."
-    def load_key(): return None
-    def license_deactivate(): pass
 
 # =============================================================================
 # Job management
@@ -117,6 +77,7 @@ class Job:
     cancel_event: Optional[threading.Event] = None
     resultado: Optional[dict] = None
     progress: dict = None
+    authentication: Optional[dict] = None
     created_at: float = 0.0
 
     def __post_init__(self):
@@ -192,21 +153,12 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://127.0.0.1:5173", "http://localhost:5173", "app://"],
     allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type", "x-api-token", "x-license-key"],
+    allow_headers=["Content-Type", "x-api-token"],
 )
 
 # Token gerado pelo Electron e passado via env var NFSE_API_TOKEN.
 # Se não definido (modo dev sem Electron), a auth é desativada.
 _API_TOKEN = os.environ.get("NFSE_API_TOKEN", "")
-
-def _is_license_exempt_path(method: str, path: str) -> bool:
-    if path in ("/health", "/health/auth"):
-        return True
-    if method == "GET" and re.fullmatch(r"/executar/[^/]+/status", path):
-        return True
-    if method == "POST" and re.fullmatch(r"/executar/[^/]+/cancelar", path):
-        return True
-    return False
 
 @app.middleware("http")
 async def _require_token(request: Request, call_next):
@@ -217,14 +169,6 @@ async def _require_token(request: Request, call_next):
         if not token or not hmac.compare_digest(token.encode(), _API_TOKEN.encode()):
             return JSONResponse(status_code=401, content={"error": "Não autorizado"})
 
-    if request.method != "OPTIONS" and not _is_license_exempt_path(request.method, request.url.path):
-        license_key = request.headers.get("x-license-key", "")
-        licensed, message = validate_license_key(license_key)
-        if not licensed:
-            return JSONResponse(
-                status_code=402,
-                content={"licensed": False, "detail": message, "message": message},
-            )
     return await call_next(request)
 
 # =============================================================================
@@ -250,12 +194,8 @@ async def get_config():
             ("XLSX_PATH", "Planilha de clientes", "path"),
             ("PASTA_SAIDA", "Pasta de saída", "dir"),
         ]},
-        {"title": "SAT / Playwright", "fields": [
-            ("CHROME_CHANNEL", "Canal do navegador (chrome)", "text"),
-            ("CHROME_EXECUTABLE_PATH", "Executável Chrome (opcional)", "path"),
-            ("PLAYWRIGHT_HEADLESS", "Executar sem janela (True/False)", "text"),
-            ("PLAYWRIGHT_TIMEOUT_MS", "Timeout por ação (ms, máximo 15000)", "int"),
-            ("PLAYWRIGHT_LOGIN_TIMEOUT_S", "Espera da resposta de login (s)", "int"),
+        {"title": "SAT / HTTP sem navegador", "fields": [
+            ("SAT_HTTP_TIMEOUT_S", "Tempo máximo da resposta HTTP (s)", "int"),
         ]},
         {"title": "Seletores SAT — alterar após observar o portal", "fields": [
             (key, key.removeprefix("SAT_SELECTOR_").replace("_", " ").capitalize(), "text")
@@ -289,7 +229,7 @@ async def set_config(body: dict):
         defaults = default_values()
 
         for chave, valor in body.items():
-            if chave == "SAT_LOGIN_URL":
+            if chave == "SAT_LOGIN_URL" or chave not in defaults:
                 continue
             if not hasattr(config, chave):
                 continue
@@ -346,67 +286,6 @@ async def paths_status():
             "saida": {"path": config.PASTA_SAIDA, "ok": Path(config.PASTA_SAIDA).is_dir()}}
 
 
-@app.get("/admin/maquinas")
-async def admin_maquinas():
-    """Status do servidor de licencas + lista de licencas/maquinas ativas.
-
-    - 'online': o servidor respondeu (conectividade).
-    - 'configurado': LICENSE_ADMIN_TOKEN setado nesta maquina (mostra os dados).
-    - 'itens': licencas com suas maquinas; 'maquinas': lista achatada (1 por
-      maquina ativa) para exibir direto no Modo Dev.
-    """
-    url = (
-        os.environ.get("NFSE_LICENSE_ADMIN_URL", "").strip()
-        or str(getattr(config, "LICENSE_ADMIN_URL", "") or "").strip()
-    )
-    token = str(getattr(config, "LICENSE_ADMIN_TOKEN", "") or "").strip()
-    base = url.split("/api/")[0] if "/api/" in url else url
-    out = {"serverUrl": base, "online": False, "configurado": bool(token),
-           "ok": False, "total": 0, "itens": [], "maquinas": [], "erro": ""}
-    if not url:
-        out["erro"] = "LICENSE_ADMIN_URL nao configurada."
-        return out
-    try:
-        import requests
-        if token:
-            r = requests.post(
-                url, json={"op": "list"},
-                headers={"x-admin-token": token, "Content-Type": "application/json"},
-                timeout=15,
-            )
-            out["online"] = True
-            data = r.json()
-            out["ok"] = bool(data.get("ok"))
-            out["total"] = data.get("total", 0)
-            out["itens"] = data.get("items", [])
-            if not out["ok"]:
-                out["erro"] = str(data.get("message", ""))
-            # Achata as maquinas (1 entrada por maquina com chave ativa)
-            for it in out["itens"]:
-                for mid, m in (it.get("machines") or {}).items():
-                    machine_status = (m or {}).get("status") or it.get("status", "active")
-                    if it.get("status") == "blocked":
-                        machine_status = "blocked"
-                    out["maquinas"].append({
-                        "cliente": it.get("clientName") or it.get("keyFmt"),
-                        "machineId": mid,
-                        "status": machine_status,
-                        "expiresAt": it.get("expiresAt"),
-                        "lastSeen": (m or {}).get("lastSeen"),
-                        "firstSeen": (m or {}).get("firstSeen"),
-                    })
-            out["maquinas"].sort(key=lambda x: x.get("lastSeen") or "", reverse=True)
-        else:
-            # Sem token: so verifica se o servidor esta no ar.
-            requests.get(base, timeout=10)
-            out["online"] = True
-        return out
-    except Exception as e:
-        out["online"] = False
-        out["erro"] = str(e)
-        return out
-
-
 def _resolver_xlsx_path() -> Path:
     """Resolve XLSX_PATH relativo ao diretorio do config.py."""
     raw = str(getattr(config, "XLSX_PATH", "clientes.xlsx")).strip() or "clientes.xlsx"
@@ -429,64 +308,15 @@ def _normalizar_clientes(clientes) -> list[dict]:
         ativo = c.get("ativo", True)
         if isinstance(ativo, str):
             ativo = ativo.strip().lower() not in ("nao", "não", "false", "0", "n", "")
-        tipo_login = str(c.get("tipo_login", "usuario_senha") or "usuario_senha").strip().lower()
-        if tipo_login not in ("usuario_senha",):
-            tipo_login = "usuario_senha"
-        usuario_sat = str(c.get("usuario_sat", c.get("usuario", c.get("usuario_nfse", ""))) or "").strip()
-        senha_sat = str(c.get("senha_sat", c.get("senha", c.get("senha_nfse", ""))) or "")
         if doc or nome:
-            out.append({
-                "documento": doc, "nome": nome, "ativo": bool(ativo),
-                "tipo_login": tipo_login, "usuario_sat": usuario_sat,
-                "senha_sat": senha_sat,
-            })
+            out.append({"documento": doc, "nome": nome, "ativo": bool(ativo)})
     return out
 
 
 def _ler_clientes_local() -> dict:
-    from openpyxl import load_workbook
-
     xlsx_path = _resolver_xlsx_path()
-    if not xlsx_path.exists():
-        return {"clientes": [], "path": str(xlsx_path), "source": "local"}
-
-    wb = load_workbook(xlsx_path, read_only=True, data_only=True)
-    ws = wb.active
-    rows = list(ws.iter_rows(min_row=1, values_only=True))
-    wb.close()
-
-    if not rows:
-        return {"clientes": [], "path": str(xlsx_path), "source": "local"}
-
-    header = [str(c or "").strip().lower() for c in rows[0]]
-    idx_doc = next((i for i, h in enumerate(header)
-                    if "cnpj" in h or "cpf" in h or "doc" in h), 0)
-    idx_nome = next((i for i, h in enumerate(header)
-                     if "nome" in h or "razao" in h or "cliente" in h), 1)
-    idx_ativo = next((i for i, h in enumerate(header)
-                      if "ativo" in h or "selec" in h), None)
-    idx_tipo = next((i for i, h in enumerate(header) if "tipo_login" in h or "tipo login" in h), None)
-    idx_usuario = next((i for i, h in enumerate(header) if h in ("usuario_sat", "usuario sat", "usuario", "usuário", "usuario_nfse", "usuario nfse")), None)
-    idx_senha = next((i for i, h in enumerate(header) if h in ("senha_sat", "senha sat", "senha", "senha_nfse", "senha nfse")), None)
-
-    clientes = []
-    for row in rows[1:]:
-        if not row or all(c is None or str(c).strip() == "" for c in row):
-            continue
-        doc = str(row[idx_doc] or "").strip() if idx_doc < len(row) else ""
-        nome = str(row[idx_nome] or "").strip() if idx_nome < len(row) else ""
-        ativo = True
-        if idx_ativo is not None and idx_ativo < len(row):
-            ativo = str(row[idx_ativo] or "").strip().lower() not in ("nao", "não", "false", "0", "n", "")
-        if doc or nome:
-            clientes.append({
-                "documento": doc, "nome": nome, "ativo": ativo,
-                "tipo_login": str(row[idx_tipo] or "usuario_senha") if idx_tipo is not None and idx_tipo < len(row) else "usuario_senha",
-                "usuario_sat": str(row[idx_usuario] or "") if idx_usuario is not None and idx_usuario < len(row) else "",
-                "senha_sat": str(row[idx_senha] or "") if idx_senha is not None and idx_senha < len(row) else "",
-            })
-
-    return {"clientes": _normalizar_clientes(clientes), "path": str(xlsx_path), "source": "local"}
+    clientes = _parse_xlsx_clientes(xlsx_path) if xlsx_path.exists() else []
+    return {"clientes": clientes, "path": str(xlsx_path), "source": "local"}
 
 
 def _salvar_clientes_local(clientes: list[dict]) -> dict:
@@ -498,14 +328,9 @@ def _salvar_clientes_local(clientes: list[dict]) -> dict:
     wb = Workbook()
     ws = wb.active
     ws.title = "Clientes"
-    ws.append(["CNPJ", "NOME", "ATIVO", "TIPO_LOGIN", "USUARIO_SAT", "SENHA_SAT"])
+    ws.append(["NOME", "CNPJ"])
     for c in clientes:
-        ativo = "Sim" if c.get("ativo", True) else "Nao"
-        ws.append([
-            c.get("documento", ""), c.get("nome", ""), ativo,
-            c.get("tipo_login", "usuario_senha"), c.get("usuario_sat", ""),
-            c.get("senha_sat", ""),
-        ])
+        ws.append([c.get("nome", ""), c.get("documento", "")])
     for row in ws.iter_rows():
         for cell in row:
             if isinstance(cell.value, str):
@@ -519,9 +344,7 @@ def _salvar_clientes_local(clientes: list[dict]) -> dict:
 
 
 # ── Overlay LOCAL da selecao (ativo/inativo) por CNPJ ────────────────────────
-# O servidor de licencas so guarda documento+nome (descarta 'ativo'). Para a
-# selecao por checkbox funcionar mesmo com armazenamento remoto, guardamos o
-# ativo/inativo num arquivo local por CNPJ e aplicamos ao ler/executar.
+# Seleção local preservada no formato existente, por CPF/CNPJ.
 def _overlay_path() -> Path:
     return _resolver_xlsx_path().with_name("clientes_selecao.json")
 
@@ -565,144 +388,12 @@ def _aplicar_overlay(clientes: list[dict]) -> list[dict]:
     return clientes
 
 
-# Credenciais do portal sao locais por maquina. Elas nao sao enviadas ao
-# servidor de licencas nem incluidas no repositorio.
-def _credenciais_path() -> Path:
-    return _resolver_xlsx_path().with_name("clientes_credenciais.json")
-
-
-def _ler_credenciais_locais() -> dict:
-    import json
-    p = _credenciais_path()
-    if not p.exists():
-        return {}
-    try:
-        data = json.loads(p.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else {}
-    except Exception as e:  # noqa: BLE001
-        logger.warning("Falha ao ler credenciais locais de clientes: %s", e)
-        return {}
-
-
-def _salvar_credenciais_locais(clientes: list[dict]) -> None:
-    import json
-    dados = {}
-    for c in clientes or []:
-        doc = re.sub(r"\D", "", str(c.get("documento", "")))
-        if not doc:
-            continue
-        tipo = str(c.get("tipo_login", "usuario_senha"))
-        dados[doc] = {
-            "tipo_login": tipo if tipo in ("usuario_senha",) else "usuario_senha",
-            "usuario_sat": str(c.get("usuario_sat", "") or ""),
-            "senha_sat": str(c.get("senha_sat", "") or ""),
-        }
-    try:
-        _credenciais_path().write_text(
-            json.dumps(dados, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
-    except OSError as e:
-        raise RuntimeError("Falha ao gravar credenciais locais") from None
-
-
-def _aplicar_credenciais_locais(clientes: list[dict]) -> list[dict]:
-    dados = _ler_credenciais_locais()
-    for c in clientes:
-        doc = re.sub(r"\D", "", str(c.get("documento", "")))
-        cred = dados.get(doc)
-        if isinstance(cred, dict):
-            c["tipo_login"] = cred.get("tipo_login", "usuario_senha")
-            c["usuario_sat"] = cred.get("usuario_sat", "")
-            c["senha_sat"] = cred.get("senha_sat", "")
-    return clientes
-
-
 def _aplicar_dados_locais(clientes: list[dict]) -> list[dict]:
-    return _aplicar_credenciais_locais(_aplicar_overlay(clientes))
+    return _aplicar_overlay(_normalizar_clientes(clientes))
 
 
-def _clientes_remotos_ativos() -> bool:
-    value = os.environ.get("SAT_CLIENTES_REMOTE", "0").strip().lower()
-    return value not in {"0", "false", "no", "off"} and bool(os.environ.get("SAT_CLIENTES_URL", "").strip())
-
-
-def _license_server_url() -> str:
-    url = (
-        os.environ.get("NFSE_LICENSE_SERVER_URL", "").strip()
-        or str(getattr(_lic, "LICENSE_SERVER_URL", "") or "").strip()
-        or "https://license-server-sigma-topaz.vercel.app"
-    )
-    return url.rstrip("/")
-
-
-def _clientes_remote_url() -> str:
-    return (
-        os.environ.get("SAT_CLIENTES_URL", "").strip()
-        or f"{_license_server_url()}/api/clientes"
-    )
-
-
-def _clientes_machine_id() -> str:
-    if _lic and hasattr(_lic, "get_machine_id"):
-        return _lic.get_machine_id()
-    raise RuntimeError("Identificador desta maquina indisponivel.")
-
-
-def _clientes_client_secret() -> str:
-    return (
-        os.environ.get("NFSE_CLIENT_SECRET", "").strip()
-        or str(getattr(_lic, "_CLIENT_SECRET", "") or "").strip()
-    )
-
-
-def _clientes_remote_call(op: str, license_key: str, clientes: list[dict] | None = None) -> dict:
-    if not license_key:
-        raise RuntimeError("Licenca nao informada.")
-
-    payload = {
-        "op": op,
-        "key": license_key,
-        "machine_id": _clientes_machine_id(),
-    }
-    if clientes is not None:
-        payload["clientes"] = clientes
-
-    headers = {"Content-Type": "application/json"}
-    client_secret = _clientes_client_secret()
-    if client_secret:
-        headers["x-client-secret"] = client_secret
-
-    resp = requests.post(
-        _clientes_remote_url(),
-        json=payload,
-        headers=headers,
-        timeout=10,
-    )
-    try:
-        data = resp.json()
-    except Exception:
-        data = {}
-    if not resp.ok or data.get("ok") is False:
-        msg = data.get("message") or data.get("detail") or resp.text or f"HTTP {resp.status_code}"
-        raise RuntimeError(str(msg))
-    return data
-
-
-def _clientes_atuais(license_key: str) -> list[dict]:
-    """Lista de clientes da aba Clientes para uso na execucao.
-
-    Mesma fonte da tela de Clientes: servidor por maquina (quando remoto
-    ativo), com fallback para o XLSX local. Retorna [] se nada cadastrado —
-    nesse caso a automacao mantem o comportamento antigo (todos os certs).
-    """
-    if _clientes_remotos_ativos():
-        try:
-            data = _clientes_remote_call("get", license_key)
-            clientes = _normalizar_clientes(data.get("clientes") or [])
-            if clientes:
-                return _aplicar_dados_locais(clientes)
-        except Exception as remote_err:
-            logger.warning("Falha ao obter clientes do servidor p/ execucao: %s", remote_err)
+def _clientes_atuais() -> list[dict]:
+    """Carrega os clientes locais selecionados para a execução."""
     try:
         return _aplicar_dados_locais(_ler_clientes_local().get("clientes") or [])
     except Exception as local_err:
@@ -712,43 +403,8 @@ def _clientes_atuais(license_key: str) -> list[dict]:
 
 @app.get("/clientes")
 async def listar_clientes(request: Request):
-    """Le clientes por maquina no servidor; usa XLSX local como fallback/migracao."""
+    """Lê o cadastro local com seleção por empresa."""
     try:
-        if _clientes_remotos_ativos():
-            try:
-                data = _clientes_remote_call("get", request.headers.get("x-license-key", ""))
-                clientes = _aplicar_dados_locais(_normalizar_clientes(data.get("clientes") or []))
-                if clientes or data.get("updatedAt"):
-                    return {
-                        "clientes": clientes,
-                        "path": data.get("path") or "",
-                        "location": data.get("location") or "Servidor de licencas",
-                        "source": "server",
-                        "machineId": data.get("machine_id") or _clientes_machine_id(),
-                        "updatedAt": data.get("updatedAt"),
-                    }
-
-                local = _ler_clientes_local()
-                local["clientes"] = _aplicar_dados_locais(local.get("clientes") or [])
-                if local.get("clientes"):
-                    local["location"] = (
-                        f"Arquivo local: {local.get('path')} "
-                        "(clique em Salvar para enviar ao servidor desta maquina)"
-                    )
-                    local["sync_hint"] = "Clique em Salvar para enviar estes clientes ao servidor desta maquina."
-                    return local
-
-                return {
-                    "clientes": [],
-                    "path": data.get("path") or "",
-                    "location": data.get("location") or "Servidor de licencas",
-                    "source": "server",
-                    "machineId": data.get("machine_id") or _clientes_machine_id(),
-                    "updatedAt": data.get("updatedAt"),
-                }
-            except Exception as remote_err:
-                logger.warning("Falha ao carregar clientes do servidor: %s", remote_err)
-
         local = _ler_clientes_local()
         local["clientes"] = _aplicar_dados_locais(local.get("clientes") or [])
         if not local.get("location"):
@@ -761,49 +417,18 @@ async def listar_clientes(request: Request):
 
 @app.post("/clientes")
 async def salvar_clientes(request: Request, payload: dict):
-    """Grava clientes por maquina no servidor; local por padrão; remoto SAT somente quando configurado."""
+    """Grava o cadastro local, sem dependência de servidor de licença."""
     try:
         clientes = _normalizar_clientes(payload.get("clientes") or [])
         docs = set()
         for cliente in clientes:
             doc = cliente["documento"]
-            if len(doc) not in (11, 14) or not cliente["nome"]:
-                raise HTTPException(400, "Informe CPF/CNPJ e nome de cada cliente")
+            if len(doc) != 14 or not cliente["nome"]:
+                raise HTTPException(400, "Informe CNPJ com 14 dígitos e nome de cada cliente")
             if doc in docs:
-                raise HTTPException(400, "CPF/CNPJ duplicado")
+                raise HTTPException(400, "CNPJ duplicado")
             docs.add(doc)
-            if not cliente["usuario_sat"] or not cliente["senha_sat"]:
-                raise HTTPException(400, "Informe usuário e senha SAT de cada cliente")
-        # Guarda a selecao (ativo/inativo) localmente — o servidor descarta esse
-        # campo, entao o overlay local e a fonte da verdade da selecao.
         _salvar_overlay(clientes)
-        _salvar_credenciais_locais(clientes)
-
-        if _clientes_remotos_ativos():
-            try:
-                data = _clientes_remote_call(
-                    "save",
-                    request.headers.get("x-license-key", ""),
-                    [
-                        {k: c[k] for k in ("documento", "nome", "ativo")}
-                        for c in clientes
-                    ],
-                )
-                return {
-                    "ok": True,
-                    "salvos": int(data.get("salvos", len(clientes))),
-                    "path": data.get("path") or "",
-                    "location": data.get("location") or "Servidor de licencas",
-                    "source": "server",
-                    "machineId": data.get("machine_id") or _clientes_machine_id(),
-                    "updatedAt": data.get("updatedAt"),
-                }
-            except Exception as remote_err:
-                logger.exception("Falha ao salvar clientes no servidor")
-                raise HTTPException(
-                    status_code=502,
-                    detail=f"Falha ao salvar clientes no servidor: {remote_err}",
-                )
 
         return _salvar_clientes_local(clientes)
     except Exception as e:
@@ -814,43 +439,39 @@ async def salvar_clientes(request: Request, payload: dict):
 
 
 def _parse_xlsx_clientes(path: Path) -> list[dict]:
-    """Le um XLSX arbitrario (colunas CNPJ/CPF + Nome; ATIVO opcional) e devolve
-    a lista normalizada de clientes. Detecta as colunas pelo cabecalho."""
+    """Importa NOME/CNPJ em qualquer ordem. Colunas antigas de acesso são ignoradas."""
+    import unicodedata
     from openpyxl import load_workbook
-
     wb = load_workbook(path, read_only=True, data_only=True)
-    ws = wb.active
-    rows = list(ws.iter_rows(min_row=1, values_only=True))
-    wb.close()
+    try:
+        rows = list(wb.active.iter_rows(values_only=True))
+    finally:
+        wb.close()
     if not rows:
         return []
-    header = [str(c or "").strip().lower() for c in rows[0]]
-    idx_doc = next((i for i, h in enumerate(header)
-                    if "cnpj" in h or "cpf" in h or "doc" in h), 0)
-    idx_nome = next((i for i, h in enumerate(header)
-                     if "nome" in h or "razao" in h or "cliente" in h), 1)
-    idx_ativo = next((i for i, h in enumerate(header)
-                      if "ativo" in h or "selec" in h), None)
-    idx_tipo = next((i for i, h in enumerate(header) if "tipo_login" in h or "tipo login" in h), None)
-    idx_usuario = next((i for i, h in enumerate(header) if h in ("usuario_sat", "usuario sat", "usuario", "usuário", "usuario_nfse", "usuario nfse")), None)
-    idx_senha = next((i for i, h in enumerate(header) if h in ("senha_sat", "senha sat", "senha", "senha_nfse", "senha nfse")), None)
-    clientes = []
+    def header(value):
+        return "".join(c for c in unicodedata.normalize("NFD", str(value or "").strip().lower())
+                       if unicodedata.category(c) != "Mn")
+    headers = [header(c) for c in rows[0]]
+    idx_doc = next((i for i, h in enumerate(headers) if h in ("cnpj", "documento")), None)
+    idx_nome = next((i for i, h in enumerate(headers) if h in ("nome", "nome da empresa", "razao social", "cliente")), None)
+    if idx_doc is None or idx_nome is None:
+        raise ValueError("A planilha precisa das colunas NOME e CNPJ")
+    idx_ativo = next((i for i, h in enumerate(headers) if h == "ativo"), None)
+    clients = []
     for row in rows[1:]:
-        if not row or all(c is None or str(c).strip() == "" for c in row):
+        if not any(v is not None and str(v).strip() for v in row):
             continue
-        doc = str(row[idx_doc] or "").strip() if idx_doc < len(row) else ""
-        nome = str(row[idx_nome] or "").strip() if idx_nome < len(row) else ""
-        ativo = True
-        if idx_ativo is not None and idx_ativo < len(row):
-            ativo = str(row[idx_ativo] or "").strip().lower() not in ("nao", "não", "false", "0", "n", "")
-        if doc or nome:
-            clientes.append({
-                "documento": doc, "nome": nome, "ativo": ativo,
-                "tipo_login": str(row[idx_tipo] or "usuario_senha") if idx_tipo is not None and idx_tipo < len(row) else "usuario_senha",
-                "usuario_sat": str(row[idx_usuario] or "") if idx_usuario is not None and idx_usuario < len(row) else "",
-                "senha_sat": str(row[idx_senha] or "") if idx_senha is not None and idx_senha < len(row) else "",
-            })
-    return _normalizar_clientes(clientes)
+        def cell(index, default=""):
+            return row[index] if index is not None and index < len(row) and row[index] is not None else default
+        doc = cell(idx_doc)
+        if isinstance(doc, int):
+            doc = str(doc).zfill(14)
+        clients.append({"documento": str(doc), "nome": str(cell(idx_nome)), "ativo": cell(idx_ativo, True)})
+    normalized = _normalizar_clientes(clients)
+    if any(len(c["documento"]) != 14 or not c["nome"] for c in normalized):
+        raise ValueError("Preencha nome e CNPJ de cada cliente")
+    return normalized
 
 
 @app.post("/clientes/importar")
@@ -871,36 +492,9 @@ async def importar_clientes(payload: dict):
     return {"ok": True, "clientes": clientes, "total": len(clientes)}
 
 
-@app.get("/license/status")
-async def license_status():
-    """Endpoint legado: licença agora é validada no Electron contra a Vercel."""
-    return {
-        "licensed": False,
-        "message": "Licenca local desativada. O aplicativo valida diretamente no servidor da Vercel.",
-        "key_hint": None,
-        "remoteOnly": True,
-    }
-
-
-@app.post("/license/activate")
-async def license_activate_endpoint(body: dict):
-    """Endpoint legado: ativação local foi desativada."""
-    raise HTTPException(
-        status_code=410,
-        detail="Ativacao local desativada. Use a validacao direta do aplicativo com a Vercel.",
-    )
-
-
-@app.post("/license/deactivate")
-async def license_deactivate_endpoint():
-    """Remove a chave de licença local."""
-    license_deactivate()
-    return {"ok": True}
-
-
 def _filtrar_clientes_por_login(todos_clientes: list[dict], tipo_login: str) -> list[dict]:
     if tipo_login != "usuario_senha":
-        raise HTTPException(400, "Este fluxo SAT usa somente usuário e senha")
+        raise HTTPException(400, "O acesso ao SAT usa usuário e senha do contador")
     selected = [c for c in todos_clientes if c.get("ativo", True)]
     if not selected:
         raise HTTPException(400, "Nenhum cliente ativo selecionado na aba Clientes")
@@ -909,14 +503,14 @@ def _filtrar_clientes_por_login(todos_clientes: list[dict], tipo_login: str) -> 
 
 @app.post("/executar")
 async def start_execution(request: Request, body: dict):
-    """Cria um job de LOGIN SAT. Consulta e download aguardam mapeamento."""
+    """Uma autenticação do contador; clientes são os CNPJs alvo da consulta."""
     if any(j.status == "running" for j in JOBS.values()):
         raise HTTPException(409, "Já existe uma execução em andamento")
-    if body.get("modo", "login") != "login":
-        raise HTTPException(400, "Consulta e download NFC-e ainda não mapeados")
+    if body.get("modo", "consulta") != "consulta":
+        raise HTTPException(400, "Use o fluxo de consulta com usuário e senha")
     _prune_jobs()
     clients = _filtrar_clientes_por_login(
-        _clientes_atuais(request.headers.get("x-license-key", "")),
+        _clientes_atuais(),
         body.get("tipoLogin", "usuario_senha"),
     )
     try:
@@ -926,6 +520,14 @@ async def start_execution(request: Request, body: dict):
         raise HTTPException(400, str(exc)) from None
     from types import SimpleNamespace
     settings = SimpleNamespace(**{key: getattr(config, key) for key in default_values()})
+    auth_body = body.get("credenciais") or {}
+    if not isinstance(auth_body, dict):
+        raise HTTPException(400, "Informe usuário e senha para acessar o SAT")
+    credenciais = CredenciaisSAT(auth_body.get("usuario", ""), auth_body.get("senha", ""))
+    try:
+        credenciais.validar()
+    except ValueError:
+        raise HTTPException(400, "Informe usuário e senha para acessar o SAT") from None
     job_id = str(uuid.uuid4())[:8]
     job = Job(id=job_id, status="running")
     JOBS[job_id] = job
@@ -938,7 +540,7 @@ async def start_execution(request: Request, body: dict):
                         "stage": stage, "clients": done}
 
     def summary(results):
-        return {"modo": "login", "resultados": results, "total": len(results),
+        return {"modo": "consulta", "authentication": job.authentication, "resultados": results, "total": len(results),
                 "ok": sum(r["status"] == "ok" for r in results),
                 "erro": sum(r["status"] == "erro" for r in results),
                 "pendente": sum(r["status"] == "pendente" for r in results)}
@@ -948,7 +550,8 @@ async def start_execution(request: Request, body: dict):
         sat_logger.addHandler(handler)
         try:
             results = executar_local(params, cancel_event=job.cancel_event,
-                                      config=settings, on_progress=progress)
+                                      config=settings, on_progress=progress, credenciais=credenciais,
+                                      on_auth=lambda result: setattr(job, "authentication", asdict(result)))
             job.resultado = summary([asdict(r) for r in results])
             job.status = ("cancelado" if job.cancel_event.is_set() else
                           "erro" if job.resultado["erro"] else
@@ -982,6 +585,7 @@ async def get_job_status(job_id: str):
         "status": job.status,
         "logs": logs,
         "progress": job.progress,
+        "authentication": job.authentication,
     }
 
     if job.resultado:

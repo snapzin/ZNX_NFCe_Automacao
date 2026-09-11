@@ -4,9 +4,12 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
+from app.automation.sat_session import CredenciaisSAT, abrir_sessao
+from app.automation.sat_http import ValidacaoHumanaNecessaria, ErroSATHTTP
+from app.automation.sat_downloader import consultar_e_baixar, FluxoNaoMapeado
 from datetime import date, datetime, timedelta
 
-from app.automation.sat_auth import ExecucaoCancelada, check_cancel, login_sat, resultado
+from app.automation.sat_auth import ExecucaoCancelada, check_cancel, resultado
 
 log = logging.getLogger("sat")
 
@@ -27,7 +30,8 @@ class ResultadoCNPJ:
     requires_user_selection: bool = False
     error_type: str = ""
     message: str = ""
-    etapa: str = "login"
+    etapa: str = "consulta"
+    authenticated: bool = False
     documentos: int = 0
 
 
@@ -60,61 +64,88 @@ def preparar_parametros(data_inicio=None, data_fim=None, cnpjs=None, tipos=None,
     return Parametros(inicio.isoformat(), fim.isoformat(), selected)
 
 
-def autenticar_cliente(cliente, config, cancel_event, on_step):
-    from playwright.sync_api import sync_playwright
-    browser = None
+def executar_local(params, cancel_event=None, *, config=None, on_progress=None,
+                   credenciais=None, on_auth=None, session_factory=None,
+                   download=None) -> list[ResultadoCNPJ]:
+    """Autentica uma vez como contador; consulta cada CNPJ na mesma sessão."""
+    if config is None:
+        import config
+    credenciais = credenciais or CredenciaisSAT()
+    session_factory = session_factory or abrir_sessao
+    download = download or consultar_e_baixar
+    results = []
+    total = len(params.clientes)
+    auth = None
+
+    def progress(index, client, message):
+        name = client["nome"] if client else "Contador"
+        log.info("[%s] %s", name, message)
+        if on_progress:
+            on_progress(index, total, client["documento"] if client else "", name, message, results)
+
+    def blocked(auth_result):
+        pending = auth_result.error_type in {"USER_SELECTION_REQUIRED", "ADDITIONAL_STEP", "UNCONFIRMED"}
+        for index, client in enumerate(params.clientes, 1):
+            check_cancel(cancel_event)
+            results.append(ResultadoCNPJ(
+                client["documento"], client["nome"], "pendente" if pending else "erro",
+                requires_user_selection=auth_result.requires_user_selection,
+                error_type=auth_result.error_type, message=auth_result.message, etapa="login_contador"))
+            progress(index, client, "Consulta não iniciada: " + auth_result.message)
+
+    check_cancel(cancel_event)
+    progress(0, None, "Iniciando sessão única do contador")
     try:
-        with sync_playwright() as pw:
-            options = {"headless": bool(config.PLAYWRIGHT_HEADLESS)}
-            if config.CHROME_EXECUTABLE_PATH:
-                options["executable_path"] = config.CHROME_EXECUTABLE_PATH
-            elif config.CHROME_CHANNEL:
-                options["channel"] = config.CHROME_CHANNEL
-            browser = pw.chromium.launch(**options)
-            try:
-                # Contexto efêmero por empresa; cookies e sessões não se misturam.
-                context = browser.new_context(accept_downloads=False)
-                return login_sat(context.new_page(), cliente.get("usuario_sat", ""),
-                                 cliente.get("senha_sat", ""), config=config,
-                                 cancel_event=cancel_event, on_step=on_step)
-            finally:
-                browser.close()
+        with session_factory(config, credenciais, cancel_event,
+                             lambda message: progress(0, None, message)) as session:
+            check_cancel(cancel_event)
+            auth = session.autenticar()
+            if on_auth:
+                on_auth(auth)
+            progress(0, None, auth.message)
+            check_cancel(cancel_event)
+            if not auth.success:
+                blocked(auth)
+                return results
+            for index, client in enumerate(params.clientes, 1):
+                check_cancel(cancel_event)
+                progress(index, client, "Preparando consulta NFC-e por CNPJ na sessão do contador")
+                try:
+                    data = download(session, cliente=client,
+                                    data_inicio=params.data_inicio, data_fim=params.data_fim,
+                                    pasta_saida=config.PASTA_SAIDA)
+                    check_cancel(cancel_event)
+                    item = ResultadoCNPJ(client["documento"], client["nome"], "ok", success=True,
+                                         authenticated=True, documentos=data.documentos,
+                                         message="Consulta e download concluídos")
+                except ValidacaoHumanaNecessaria:
+                    item = ResultadoCNPJ(client["documento"], client["nome"], "pendente",
+                                         authenticated=True, error_type="HUMAN_VALIDATION_REQUIRED",
+                                         message="Login HTTP confirmado; SAT exige validação humana na consulta NFC-e")
+                except ErroSATHTTP:
+                    item = ResultadoCNPJ(client["documento"], client["nome"], "erro", authenticated=True,
+                                         error_type="HTTP_ERROR", message="Falha de comunicação HTTP com a consulta SAT")
+                except FluxoNaoMapeado:
+                    item = ResultadoCNPJ(client["documento"], client["nome"], "pendente",
+                                         authenticated=True, error_type="FLOW_NOT_MAPPED",
+                                         message="Login do contador confirmado; consulta/download por CNPJ aguardam mapeamento")
+                except ExecucaoCancelada:
+                    raise
+                except Exception:
+                    item = ResultadoCNPJ(client["documento"], client["nome"], "erro", authenticated=True,
+                                         error_type="DOWNLOAD_ERROR", message="Falha na consulta/download desta empresa")
+                results.append(item)
+                progress(index, client, item.message)
     except ExecucaoCancelada:
         raise
     except Exception:
-        return resultado("BROWSER_ERROR")
-
-
-def executar_local(params, cancel_event=None, *, config=None, on_progress=None,
-                   authenticate=None) -> list[ResultadoCNPJ]:
-    if config is None:
-        import config
-    authenticate = authenticate or autenticar_cliente
-    results = []
-    total = len(params.clientes)
-    for index, client in enumerate(params.clientes, 1):
         check_cancel(cancel_event)
-        name = client["nome"]
-        def step(message):
-            log.info("[%s] %s", name, message)
-            if on_progress:
-                on_progress(index, total, client["documento"], name, message, results)
-        step("Iniciando processamento")
-        try:
-            if not client.get("usuario_sat", "").strip() or not client.get("senha_sat"):
-                auth = resultado("MISSING_CREDENTIALS")
-            else:
-                auth = authenticate(client, config, cancel_event, step)
-        except ExecucaoCancelada:
-            raise
-        except Exception:
-            auth = resultado("BROWSER_ERROR")
-        check_cancel(cancel_event)
-        pending = auth.error_type in {"USER_SELECTION_REQUIRED", "ADDITIONAL_STEP", "UNCONFIRMED"}
-        status = "ok" if auth.success else "pendente" if pending else "erro"
-        item = ResultadoCNPJ(client["documento"], name, status, auth.success,
-                             auth.requires_user_selection, auth.error_type, auth.message)
-        results.append(item)
-        step(auth.message)
-        # Escopo atual encerra no login; nenhum download fictício é informado.
+        if auth is None:
+            auth = resultado("PORTAL_ERROR")
+            if on_auth:
+                on_auth(auth)
+            blocked(auth)
+        else:
+            # Falha de sessão/encerramento não transforma resultados já obtidos em sucesso.
+            raise RuntimeError("Falha na sessão do contador") from None
     return results

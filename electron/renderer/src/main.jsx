@@ -25,28 +25,6 @@ const api = {
 
     return response.json();
   },
-  async licenseStatus() {
-    if (window.electronAPI?.licenseStatus) {
-      return window.electronAPI.licenseStatus();
-    }
-    return {
-      licensed: false,
-      message: 'Validacao de licenca disponivel apenas no app conectado a Vercel.',
-      key_hint: null,
-    };
-  },
-  async licenseActivate(key) {
-    if (window.electronAPI?.licenseActivate) {
-      return window.electronAPI.licenseActivate(key);
-    }
-    throw new Error('Ativacao local desativada. Use o app Electron conectado a Vercel.');
-  },
-  async licenseDeactivate() {
-    if (window.electronAPI?.licenseDeactivate) {
-      return window.electronAPI.licenseDeactivate();
-    }
-    return { ok: true };
-  },
   get(endpoint) {
     return this.call('GET', endpoint);
   },
@@ -149,35 +127,10 @@ function App() {
   const [showPwdModal, setShowPwdModal] = useState(false);
   const [sharedJobLogs, setSharedJobLogs] = useState([]);
   const [sharedJobStatus, setSharedJobStatus] = useState('Pronto');
-  const [license, setLicense] = useState({ licensed: null, message: '', key_hint: null });
-  const [showActivateModal, setShowActivateModal] = useState(false);
   // Persiste jobId e busy fora do ExecutarPage para não perder estado ao navegar
   const [execJobId, setExecJobId] = useState(null);
   const [execBusy, setExecBusy] = useState(false);
   const { toasts, push } = useToasts();
-
-  const refreshLicense = useCallback(async () => {
-    try {
-      const result = await api.licenseStatus();
-      setLicense(result);
-      return result;
-    } catch {
-      const fallback = { licensed: false, message: 'Servidor indisponível.', key_hint: null };
-      setLicense(fallback);
-      return fallback;
-    }
-  }, []);
-
-  useEffect(() => {
-    refreshLicense();
-    const timer = window.setInterval(refreshLicense, 5 * 60 * 1000);
-    const onFocus = () => refreshLicense();
-    window.addEventListener('focus', onFocus);
-    return () => {
-      window.clearInterval(timer);
-      window.removeEventListener('focus', onFocus);
-    };
-  }, [refreshLicense]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = 'dark';
@@ -202,49 +155,6 @@ function App() {
       push('Senha incorreta.', 'error');
     }
   };
-
-  if (license.licensed !== true) {
-    return (
-      <div className="license-gate">
-        <div className="license-gate-panel">
-          <div className="license-gate-icon"><Icon.Lock /></div>
-          <h1>Licenca necessaria</h1>
-          <p>
-            {license.licensed === null
-              ? 'Verificando autorizacao com o servidor...'
-              : (license.message || 'Ative uma licenca valida para usar o sistema.')}
-          </p>
-          <div className="license-gate-actions">
-            <button
-              className="btn-primary"
-              type="button"
-              onClick={() => setShowActivateModal(true)}
-              disabled={license.licensed === null}
-            >
-              Ativar licenca
-            </button>
-            <button className="btn-secondary" type="button" onClick={refreshLicense}>
-              Revalidar
-            </button>
-          </div>
-        </div>
-        <ToastViewport toasts={toasts} />
-        {showActivateModal && (
-          <ActivationModal
-            api={api}
-            onSuccess={() => {
-              setShowActivateModal(false);
-              refreshLicense();
-              push('Licenca ativada com sucesso!', 'success');
-            }}
-            onCancel={() => setShowActivateModal(false)}
-            toast={push}
-          />
-        )}
-      </div>
-    );
-  }
-
 
   return (
     <div className="app-shell">
@@ -280,9 +190,6 @@ function App() {
                   setStatus={setStatus}
                   onLogsUpdate={setSharedJobLogs}
                   onJobStatusUpdate={setSharedJobStatus}
-                  license={license}
-                  onLicenseRefresh={refreshLicense}
-                  onActivate={() => setShowActivateModal(true)}
                   jobId={execJobId}
                   setJobId={setExecJobId}
                   busy={execBusy}
@@ -307,18 +214,6 @@ function App() {
         <footer className="statusbar">{status === 'Pronto' ? 'Pronto para executar.' : status}</footer>
       </main>
       <ToastViewport toasts={toasts} />
-      {showActivateModal && (
-        <ActivationModal
-          api={api}
-          onSuccess={() => {
-            setShowActivateModal(false);
-            refreshLicense();
-            push('Licença ativada com sucesso!', 'success');
-          }}
-          onCancel={() => setShowActivateModal(false)}
-          toast={push}
-        />
-      )}
       {showPwdModal && (
         <PasswordModal
           onSubmit={handlePwdSubmit}
@@ -365,83 +260,6 @@ function PasswordModal({ onSubmit, onCancel }) {
   );
 }
 
-function ActivationModal({ api, onSuccess, onCancel, toast }) {
-  const [key, setKey] = useState('');
-  const [loading, setLoading] = useState(false);
-  const inputRef = useRef(null);
-
-  useEffect(() => { inputRef.current?.focus(); }, []);
-
-  const formatKey = (value) => {
-    const clean = value.toUpperCase().replace(/[^A-Z0-9]/g, '');
-    const parts = clean.match(/.{1,4}/g) || [];
-    return parts.slice(0, 5).join('-');
-  };
-
-  const submit = async (e) => {
-    e?.preventDefault?.();
-    if (!key.trim()) return;
-    setLoading(true);
-    try {
-      await api.licenseActivate(key.replace(/-/g, ''));
-      onSuccess();
-    } catch (err) {
-      const msg = err?.message?.replace(/^HTTP \d+: /, '') || 'Chave inválida.';
-      toast(msg, 'error');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="modal-backdrop" onClick={onCancel}>
-      <form className="modal-box" onClick={(e) => e.stopPropagation()} onSubmit={submit}>
-        <div className="modal-icon"><Icon.Lock /></div>
-        <h3>Ativar licença</h3>
-        <p>Insira a chave de ativação fornecida pela ZNX.</p>
-        <input
-          ref={inputRef}
-          type="text"
-          value={key}
-          onChange={(e) => setKey(formatKey(e.target.value))}
-          placeholder="NFSE-XXXX-XXXX-XXXX-XXXX"
-          className="modal-input"
-          maxLength={24}
-          spellCheck={false}
-          autoComplete="off"
-        />
-        <div className="modal-actions">
-          <button type="button" className="btn-secondary" onClick={onCancel} disabled={loading}>Cancelar</button>
-          <button type="submit" className="btn-primary" disabled={loading || key.length < 4}>
-            {loading ? <Icon.Spinner /> : null} Ativar
-          </button>
-        </div>
-        <p style={{ marginTop: 16, fontSize: 11, color: 'var(--text-2)' }}>
-          Para adquirir uma licença: zayonantunes@gmail.com
-        </p>
-      </form>
-    </div>
-  );
-}
-
-function LicenseBanner({ license, onActivate }) {
-  if (license.licensed === null) return null;
-  if (license.licensed === true) return null;
-
-  return (
-    <div className="license-banner">
-      <div className="license-banner-icon"><Icon.Lock /></div>
-      <div className="license-banner-text">
-        <strong>Licença não ativada</strong>
-        <span>{license.message}</span>
-      </div>
-      <button className="btn-primary" type="button" onClick={onActivate}>
-        Ativar agora
-      </button>
-    </div>
-  );
-}
-
 function Sidebar({ page, setPage, devUnlocked, onLockDev }) {
   return (
     <aside className="sidebar">
@@ -474,16 +292,19 @@ function Sidebar({ page, setPage, devUnlocked, onLockDev }) {
         })}
       </nav>
       <div className="sidebar-footer-brand">
-        Automação NFC-e / SAT<br />v0.1.0
+        Automação NFC-e / SAT<br />v0.4.0
       </div>
     </aside>
   );
 }
 
-function ExecutarPage({ api, toast, setStatus, onLogsUpdate, onJobStatusUpdate, license, onLicenseRefresh, onActivate, jobId, setJobId, busy, setBusy }) {
+function ExecutarPage({ api, toast, setStatus, onLogsUpdate, onJobStatusUpdate, jobId, setJobId, busy, setBusy }) {
   const [usePrevMonth, setUsePrevMonth] = useState(true);
   const [snapshot, setSnapshot] = useState({ total: 0, processed: 0, clients: [] });
   const tipoAcesso = 'usuario_senha';
+  const [usuarioSAT, setUsuarioSAT] = useState('');
+  const [senhaSAT, setSenhaSAT] = useState('');
+  const [auth, setAuth] = useState(null);
   const [jobStatus, setJobStatus] = useState(busy ? 'Executando' : 'Pronto');
   const [logs, setLogs] = useState([]);
   const [cancelling, setCancelling] = useState(false);
@@ -517,6 +338,7 @@ function ExecutarPage({ api, toast, setStatus, onLogsUpdate, onJobStatusUpdate, 
         if (cancelled) return;
 
         setLogs(result.logs ?? []);
+        setAuth(result.authentication || null);
         setSnapshot(result.progress ?? { total: 0, processed: 0, clients: [] });
         setJobStatus(formatStatus(result.status));
         setStatus(formatStatus(result.status));
@@ -562,14 +384,14 @@ function ExecutarPage({ api, toast, setStatus, onLogsUpdate, onJobStatusUpdate, 
       }
     }
     try {
-      const currentLicense = await onLicenseRefresh?.();
-      if ((currentLicense ?? license)?.licensed !== true) {
-        toast('Licenca necessaria para executar.', 'warning');
-        onActivate?.();
+      if (!usuarioSAT.trim() || !senhaSAT) {
+        toast('Informe usuário e senha do SAT.', 'warning');
         return;
       }
-
       setBusy(true);
+      setAuth(null);
+      const senha = senhaSAT;
+      setSenhaSAT('');
       setLogs([]);
       setSnapshot({ total: 0, processed: 0, clients: [] });
       setCancelled(false);
@@ -579,7 +401,8 @@ function ExecutarPage({ api, toast, setStatus, onLogsUpdate, onJobStatusUpdate, 
         dataInicio: usePrevMonth ? null : isoToBr(dataInicio),
         dataFim: usePrevMonth ? null : isoToBr(dataFim),
         cnpjs: null,
-        modo: 'login',
+        modo: 'consulta',
+        credenciais: { usuario: usuarioSAT.trim(), senha },
         tipoLogin: tipoAcesso,
       });
       setJobId(result.jobId);
@@ -638,11 +461,9 @@ function ExecutarPage({ api, toast, setStatus, onLogsUpdate, onJobStatusUpdate, 
     ['Erros', String(errCount)],
   ];
 
-  const isLicensed = license?.licensed === true;
 
   return (
     <div className="page-inner">
-      <LicenseBanner license={license} onActivate={onActivate} />
       <div className="stats-row">
         {stats.map(([label, value], index) => (
           <motion.div
@@ -661,8 +482,16 @@ function ExecutarPage({ api, toast, setStatus, onLogsUpdate, onJobStatusUpdate, 
       <div className="form-box">
         <h3>Parametros de execucao</h3>
 
-        <p>Teste de login SAT com usuário e senha dos clientes ativos.</p>
-        <p>Consulta e download de NFC-e aguardam mapeamento. O período ficará reservado para essa etapa.</p>
+        <p>O acesso ao SAT usa HTTP, sem abrir o navegador. Um único login do contador atende a execução. A planilha informa apenas nome e CNPJ dos clientes.</p>
+        <div className="date-range">
+          <label className="config-field"><span>Usuário SAT</span>
+            <input type="text" autoComplete="off" value={usuarioSAT} onChange={e => setUsuarioSAT(e.target.value)} disabled={busy} />
+          </label>
+          <label className="config-field"><span>Senha SAT (somente nesta execução)</span>
+            <input type="password" autoComplete="new-password" value={senhaSAT} onChange={e => setSenhaSAT(e.target.value)} disabled={busy} />
+          </label>
+        </div>
+        <p>A consulta do portal pode exigir validação humana. Nesse caso, a execução registra pendência. A API oficial de XML exige certificado digital.</p>
 
         <label className="check-row">
           <input
@@ -697,14 +526,9 @@ function ExecutarPage({ api, toast, setStatus, onLogsUpdate, onJobStatusUpdate, 
         )}
 
         <div className="form-actions">
-          <button className="btn-primary" type="button" onClick={execute} disabled={busy || !isLicensed}>
+          <button className="btn-primary" type="button" onClick={execute} disabled={busy}>
             Executar agora
           </button>
-          {!isLicensed && license?.licensed === false && (
-            <span className="license-inline-hint" onClick={onActivate}>
-              <Icon.Lock /> Licença necessária — clique para ativar
-            </span>
-          )}
           {busy && (
             <button className="btn-danger" type="button" onClick={cancel} disabled={cancelling}>
               {cancelling ? <><Icon.Spinner /> Cancelando...</> : 'Cancelar'}
@@ -713,6 +537,12 @@ function ExecutarPage({ api, toast, setStatus, onLogsUpdate, onJobStatusUpdate, 
         </div>
       </div>
 
+      {(busy || auth) && (
+        <div className="form-box">
+          <h3>Acesso do contador</h3>
+          <p>{auth?.message || snapshot.stage || 'Iniciando sessão'}</p>
+        </div>
+      )}
       {totalEsperado > 0 && !cancelled && (
         <div className="progress-box">
           <div className="progress-header">
@@ -757,7 +587,7 @@ function ExecutarPage({ api, toast, setStatus, onLogsUpdate, onJobStatusUpdate, 
 
           {!busy && processed > 0 && (
             <div className="progress-summary">
-              <span><Icon.Check /> {okCount} login(s) confirmado(s)</span>
+              <span><Icon.Check /> {okCount} cliente(s) concluído(s)</span>
               {pendingCount > 0 && <span>{pendingCount} pendente(s) de verificação</span>}
               {errCount > 0 && <span className="err"><Icon.Cross /> {errCount} com erro</span>}
             </div>
@@ -770,7 +600,7 @@ function ExecutarPage({ api, toast, setStatus, onLogsUpdate, onJobStatusUpdate, 
           <p>
             {cancelled
               ? <>Execução cancelada. Clique em <strong>Executar agora</strong> para iniciar novamente.</>
-              : <>Clique em <strong>Executar agora</strong> para testar o login no SAT.</>}
+              : <>Clique em <strong>Executar agora</strong> para acessar o SAT com usuário e senha do contador.</>}
           </p>
         </div>
       )}
@@ -855,7 +685,7 @@ function SobrePage() {
       ['Framework', 'Electron + React'],
       ['Animacoes', 'Framer Motion'],
       ['Backend', 'FastAPI + Python'],
-      ['Automacao', 'Playwright'],
+      ['Automacao', 'HTTP / SAT'],
     ],
     [],
   );
@@ -870,9 +700,9 @@ function SobrePage() {
       >
         <h1>SAT</h1>
         <h2>Automacao</h2>
-        <p className="version">Versao 0.1.0</p>
+        <p className="version">Versao 0.4.0</p>
         <p className="description">
-          Valida o login SAT de múltiplos clientes via Playwright. Consulta e download pendentes de mapeamento.
+          Acessa o SAT uma vez com usuário e senha do contador e usa nome/CNPJ dos clientes como alvos da consulta. Comunicação HTTP sem navegador; download sujeito à validação exigida pelo SAT.
         </p>
         <div className="about-info">
           {rows.map(([label, value]) => (
@@ -913,18 +743,12 @@ function ClientesPage({ api, toast }) {
   const [saving, setSaving] = useState(false);
   const [filtro, setFiltro] = useState('');
   const [pathInfo, setPathInfo] = useState('');
-  const tipoAba = 'usuario_senha';
 
   const carregar = useCallback(async () => {
     setLoading(true);
     try {
       const res = await api.get('/clientes');
-      setClientes((res?.clientes || []).map((c) => ({
-        ...c,
-        tipo_login: 'usuario_senha',
-        usuario_sat: c.usuario_sat || '',
-        senha_sat: c.senha_sat || '',
-      })));
+      setClientes(res?.clientes || []);
       setPathInfo(res?.location || res?.path || '');
     } catch (err) {
       toast(`Falha ao carregar clientes: ${err?.message || err}`, 'error');
@@ -950,8 +774,7 @@ function ClientesPage({ api, toast }) {
 
   const adicionar = () => {
     setClientes((cs) => [...cs, {
-      documento: '', nome: '', ativo: true, tipo_login: tipoAba,
-      usuario_sat: '', senha_sat: '',
+      documento: '', nome: '', ativo: true,
     }]);
   };
 
@@ -995,23 +818,19 @@ function ClientesPage({ api, toast }) {
             documento: String(c.documento || '').replace(/\D/g, ''),
             nome: String(c.nome || '').trim(),
             ativo: c.ativo !== false,
-            tipo_login: 'usuario_senha',
-            usuario_sat: String(c.usuario_sat || '').trim(),
-            senha_sat: String(c.senha_sat || ''),
           }))
           .filter((c) => c.documento || c.nome),
     };
     const incompleto = payload.clientes.find((c) => (
-      ![11, 14].includes(c.documento.length) || !c.nome ||
-      (c.tipo_login === 'usuario_senha' && (!c.usuario_sat || !c.senha_sat))
+      c.documento.length !== 14 || !c.nome
     ));
     if (incompleto) {
-      toast('Preencha CPF/CNPJ válido, nome e, para acesso por usuário, também usuário e senha.', 'warning');
+      toast('Preencha nome e CNPJ com 14 dígitos.', 'warning');
       return;
     }
     const docs = payload.clientes.map((c) => c.documento);
     if (new Set(docs).size !== docs.length) {
-      toast('Há CPF/CNPJ duplicado. Cada documento deve aparecer uma única vez.', 'warning');
+      toast('Há CNPJ duplicado. Cada documento deve aparecer uma única vez.', 'warning');
       return;
     }
     setSaving(true);
@@ -1028,7 +847,6 @@ function ClientesPage({ api, toast }) {
   const filtrados = clientes
     .map((c, idx) => ({ ...c, _idx: idx }))
     .filter((c) => {
-      if ((c.tipo_login || 'usuario_senha') !== tipoAba) return false;
       if (!filtro) return true;
       const f = filtro.toLowerCase();
       const doc = String(c.documento || '').replace(/\D/g, '');
@@ -1036,24 +854,23 @@ function ClientesPage({ api, toast }) {
              String(c.nome || '').toLowerCase().includes(f);
     });
 
-  const clientesDaAba = clientes.filter((c) => (c.tipo_login || 'usuario_senha') === tipoAba);
+  const clientesDaAba = clientes;
   const totalAtivos = clientesDaAba.filter((c) => c.ativo !== false).length;
   const todosMarcados = clientesDaAba.length > 0 && totalAtivos === clientesDaAba.length;
-  const totalUsuarioSenha = clientes.filter((c) => c.tipo_login === 'usuario_senha').length;
 
   const marcarTodosDaAba = (ativo) => {
     setClientes((cs) => cs.map((c) => (
-      (c.tipo_login || 'usuario_senha') === tipoAba ? { ...c, ativo } : c
+      { ...c, ativo }
     )));
   };
 
   return (
     <div className="page-inner">
-      <h3>Clientes SAT — usuário e senha</h3>
+      <h3>Clientes — nome e CNPJ</h3>
       <div className="clientes-toolbar">
         <input
           type="text"
-          placeholder="Filtrar por CNPJ/CPF ou nome..."
+          placeholder="Filtrar por CNPJ ou nome..."
           value={filtro}
           onChange={(e) => setFiltro(e.target.value)}
           className="clientes-filter"
@@ -1091,20 +908,18 @@ function ClientesPage({ api, toast }) {
                 />
               </th>
               <th style={{ width: '40px' }}>#</th>
-              <th style={{ width: '180px' }}>CNPJ / CPF</th>
+              <th style={{ width: '180px' }}>CNPJ</th>
               <th>Nome do Cliente</th>
-              {tipoAba === 'usuario_senha' && <th style={{ width: '180px' }}>Usuário SAT</th>}
-              {tipoAba === 'usuario_senha' && <th style={{ width: '180px' }}>Senha SAT</th>}
               <th style={{ width: '150px' }}>Ações</th>
             </tr>
           </thead>
           <tbody>
             {loading && (
-              <tr><td colSpan={tipoAba === 'usuario_senha' ? 7 : 5} className="clientes-empty">Carregando...</td></tr>
+              <tr><td colSpan={5} className="clientes-empty">Carregando...</td></tr>
             )}
             {!loading && filtrados.length === 0 && (
               <tr>
-                <td colSpan={tipoAba === 'usuario_senha' ? 7 : 5} className="clientes-empty">
+                <td colSpan={5} className="clientes-empty">
                   {clientes.length === 0
                     ? 'Nenhum cliente cadastrado. Clique em "Importar planilha" ou "+ Adicionar".'
                     : 'Nenhum resultado para o filtro.'}
@@ -1139,28 +954,6 @@ function ClientesPage({ api, toast }) {
                     onChange={(e) => editar(c._idx, 'nome', e.target.value)}
                   />
                 </td>
-                {tipoAba === 'usuario_senha' && (
-                  <td>
-                    <input
-                      type="text"
-                      value={c.usuario_sat || ''}
-                      placeholder="Usuário SAT"
-                      autoComplete="off"
-                      onChange={(e) => editar(c._idx, 'usuario_sat', e.target.value)}
-                    />
-                  </td>
-                )}
-                {tipoAba === 'usuario_senha' && (
-                  <td>
-                    <input
-                      type="password"
-                      value={c.senha_sat || ''}
-                      placeholder="Senha do portal"
-                      autoComplete="new-password"
-                      onChange={(e) => editar(c._idx, 'senha_sat', e.target.value)}
-                    />
-                  </td>
-                )}
                 <td>
                   <div className="clientes-row-actions">
                     <button
@@ -1189,9 +982,6 @@ function DeveloperPage({ api, toast, logs, jobStatus }) {
   const [level, setLevel] = useState('all');
   const [autoScroll, setAutoScroll] = useState(true);
   const [systemInfo, setSystemInfo] = useState(null);
-  const [licenseInfo, setLicenseInfo] = useState(null);
-  const [machines, setMachines] = useState(null);
-  const [deactivating, setDeactivating] = useState(false);
   const logsRef = useRef(null);
 
   const fetchInfo = useCallback(async () => {
@@ -1202,31 +992,7 @@ function DeveloperPage({ api, toast, logs, jobStatus }) {
     } catch (e) { /* silencioso */ }
   }, [api]);
 
-  const fetchLicense = useCallback(async () => {
-    try { setLicenseInfo(await api.licenseStatus()); } catch { setLicenseInfo(null); }
-  }, [api]);
-
-  const fetchMachines = useCallback(async () => {
-    try { setMachines(await api.get('/admin/maquinas')); } catch { setMachines({ configurado: false, itens: [] }); }
-  }, [api]);
-
-  const refreshAll = useCallback(() => { fetchInfo(); fetchLicense(); fetchMachines(); }, [fetchInfo, fetchLicense, fetchMachines]);
-
-  const deactivateLicense = async () => {
-    if (!window.confirm('Desativar a licença? O sistema ficará bloqueado até uma nova ativação.')) return;
-    setDeactivating(true);
-    try {
-      await api.licenseDeactivate();
-      toast('Licença desativada.', 'warning');
-      fetchLicense();
-    } catch {
-      toast('Erro ao desativar licença.', 'error');
-    } finally {
-      setDeactivating(false);
-    }
-  };
-
-  useEffect(() => { refreshAll(); }, [refreshAll]);
+  useEffect(() => { fetchInfo(); }, [fetchInfo]);
 
   useEffect(() => {
     if (autoScroll && logsRef.current) {
@@ -1245,22 +1011,9 @@ function DeveloperPage({ api, toast, logs, jobStatus }) {
     if (navigator.clipboard && text) { navigator.clipboard.writeText(text); toast('Logs copiados.', 'success'); }
   };
 
-  const fmtDate = (iso) => {
-    if (!iso) return '—';
-    const d = new Date(iso);
-    return isNaN(d) ? '—' : d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
-  };
-  const isExpired = (it) => it.expiresAt && Date.now() > new Date(it.expiresAt).getTime();
-
-  const certs = systemInfo?.certs;
-  const itens = machines?.itens || [];
-  const maquinas = machines?.maquinas || [];
-  const totalMaquinas = itens.reduce((s, i) => s + (i.machineCount || 0), 0);
   const stats = [
     ['Status', jobStatus || 'Pronto'],
     ['Portal', 'SAT / SC'],
-    ['Licenças', machines?.configurado ? (machines.total ?? itens.length) : '—'],
-    ['Máquinas ativas', machines?.configurado ? totalMaquinas : '—'],
   ];
 
   return (
@@ -1275,122 +1028,18 @@ function DeveloperPage({ api, toast, logs, jobStatus }) {
         ))}
       </div>
 
-      {/* Servidor de licencas + maquinas ativas */}
-      <div className="dev-info-box">
-        <div className="dev-box-head">
-          <h3>Servidor de licenças & máquinas</h3>
-          <button className="btn-secondary" type="button" onClick={fetchMachines}>Atualizar</button>
-        </div>
-
-        {/* Status de conexao */}
-        <div className="dev-conn">
-          <span className={`dev-dot ${machines?.online ? 'on' : 'off'}`} />
-          <span className="dev-conn-txt">
-            {!machines ? 'Verificando conexão...' : machines.online ? 'Conectado ao servidor' : 'Sem conexão com o servidor'}
-          </span>
-          {machines?.serverUrl && <span className="dev-conn-url">{machines.serverUrl}</span>}
-        </div>
-
-        {!machines ? (
-          <p className="log-muted">Carregando...</p>
-        ) : !machines.configurado ? (
-          <p className="log-muted">
-            Servidor {machines.online ? 'online' : 'offline'}. Para ver as licenças e máquinas,
-            defina o <code>Token admin</code> em <strong>Configurações</strong> (só nesta máquina).
-          </p>
-        ) : machines.erro ? (
-          <p className="log-muted">Erro ao consultar: {machines.erro}</p>
-        ) : (
-          <>
-            <div className="dev-sub">Licenças ({itens.length})</div>
-            {itens.length === 0 ? (
-              <p className="log-muted">Nenhuma licença cadastrada ainda.</p>
-            ) : (
-              <div className="dev-maq-wrap">
-                <table className="dev-maq-table">
-                  <thead><tr><th>Cliente</th><th>Status</th><th>Máquinas</th><th>Validade</th><th>Último acesso</th></tr></thead>
-                  <tbody>
-                    {itens.map((it) => {
-                      const cls = it.status === 'blocked' ? 'badge-blk' : isExpired(it) ? 'badge-exp' : 'badge-ok';
-                      const txt = it.status === 'blocked' ? 'BLOQUEADA' : isExpired(it) ? 'EXPIRADA' : 'ATIVA';
-                      return (
-                        <tr key={it.key}>
-                          <td><strong>{it.clientName || it.keyFmt}</strong></td>
-                          <td><span className={`dev-badge ${cls}`}>{txt}</span></td>
-                          <td>{it.machineCount}/{it.maxMachines}</td>
-                          <td>{it.expiresAt ? fmtDate(it.expiresAt) : 'sem'}</td>
-                          <td>{fmtDate(it.lastSeen)}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-
-            <div className="dev-sub" style={{ marginTop: 16 }}>Máquinas registradas ({maquinas.length})</div>
-            {maquinas.length === 0 ? (
-              <p className="log-muted">Nenhuma máquina ativou uma chave ainda.</p>
-            ) : (
-              <div className="dev-maq-wrap">
-                <table className="dev-maq-table">
-                  <thead><tr><th>Cliente</th><th>Máquina (ID)</th><th>Status</th><th>Último acesso</th></tr></thead>
-                  <tbody>
-                    {maquinas.map((m, i) => {
-                      const ativo = m.status !== 'blocked' && !(m.expiresAt && Date.now() > new Date(m.expiresAt).getTime());
-                      return (
-                        <tr key={`${m.machineId}-${i}`}>
-                          <td><strong>{m.cliente}</strong></td>
-                          <td className="dev-mono">{String(m.machineId).slice(0, 18)}…</td>
-                          <td><span className={`dev-badge ${ativo ? 'badge-ok' : 'badge-blk'}`}>{ativo ? 'ATIVA' : 'INATIVA'}</span></td>
-                          <td>{fmtDate(m.lastSeen)}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </>
-        )}
-      </div>
-
-      {/* Sistema + Licenca lado a lado */}
+      {/* Informações do sistema */}
       <div className="dev-grid-2">
         <div className="dev-info-box">
           <div className="dev-box-head"><h3>Informações do sistema</h3><button className="btn-secondary" type="button" onClick={fetchInfo}>Atualizar</button></div>
           {systemInfo ? (
             <div className="dev-info-grid">
-              <div className="info-row"><span className="label">Autenticação</span><span className="value">Usuário e senha SAT</span></div>
+              <div className="info-row"><span className="label">Autenticação</span><span className="value">Usuário e senha do contador</span></div>
               <div className="info-row"><span className="label">Pasta saída</span><span className="value">{systemInfo.cfg?.values?.PASTA_SAIDA || '—'}</span></div>
-              <div className="info-row"><span className="label">Perfil Chrome</span><span className="value">{systemInfo.cfg?.values?.CHROME_USER_DATA_DIR || '—'}</span></div>
-              <div className="info-row"><span className="label">Extensão (ID)</span><span className="value">{systemInfo.cfg?.values?.CHROME_EXTENSION_ID || '—'}</span></div>
-              {systemInfo.certs && (
-                <>
-                  <div className="info-row"><span className="label">Certificados válidos</span><span className="value">{systemInfo.certs.validos}/{systemInfo.certs.total}</span></div>
-                  <div className="info-row"><span className="label">CNPJs únicos</span><span className="value">{systemInfo.certs.cnpjsUnicos}</span></div>
-                  <div className="info-row"><span className="label">CNPJs duplicados</span><span className="value">{systemInfo.certs.cnpjsDuplicados}</span></div>
-                </>
-              )}
             </div>
           ) : <p className="log-muted">Carregando...</p>}
         </div>
 
-        <div className="dev-info-box">
-          <h3>Licença desta máquina</h3>
-          {licenseInfo ? (
-            <div className="dev-lic">
-              <span className="label">Chave ativa</span>
-              <span className="dev-lic-key" style={{ color: licenseInfo.licensed ? 'var(--success)' : 'var(--danger)' }}>{licenseInfo.key_hint || '—'}</span>
-              <span className="log-muted">{licenseInfo.message}</span>
-              {licenseInfo.key_hint && (
-                <button className="btn-danger" type="button" onClick={deactivateLicense} disabled={deactivating} style={{ marginTop: 10 }}>
-                  {deactivating ? <Icon.Spinner /> : null} Desativar licença
-                </button>
-              )}
-            </div>
-          ) : <p className="log-muted">Carregando...</p>}
-        </div>
       </div>
 
       <div className="logs-box dev-logs-box">

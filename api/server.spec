@@ -11,34 +11,20 @@ from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 SPEC_DIR = Path(SPECPATH)          # .../nfse/api/
 ROOT_DIR = SPEC_DIR.parent         # .../nfse/
 
-import playwright as _pw
-PW_DIR = Path(_pw.__file__).parent
-
-# ── Dados ─────────────────────────────────────────────────────────────────────
 datas = []
-datas += collect_data_files("playwright")
-datas += [(str(PW_DIR / "driver"), "playwright/driver")]
-# license.py e carregado em runtime por caminho de arquivo (nao import) — precisa
-# existir em disco ao lado do server.exe.
-datas += [(str(SPEC_DIR / "license.py"), ".")]
 
 # ── Imports ocultos ────────────────────────────────────────────────────────────
 hiddenimports = []
-hiddenimports += collect_submodules("playwright")
 hiddenimports += collect_submodules("uvicorn")
 hiddenimports += collect_submodules("fastapi")
 hiddenimports += collect_submodules("starlette")
 hiddenimports += collect_submodules("anyio")
-# requests e usado pelo license.py (carregado em runtime por caminho, entao o
-# PyInstaller nao detecta sozinho). Inclui requests + cadeia de dependencias.
-hiddenimports += collect_submodules("requests")
-hiddenimports += ["requests", "urllib3", "certifi", "charset_normalizer", "idna"]
 hiddenimports += [
     "openpyxl", "openpyxl.styles", "openpyxl.utils",
     "h11", "h11._readers", "h11._writers",
     "email.mime.multipart", "email.mime.text",
     "app.automation.sat_automacao", "app.automation.sat_auth",
-    "app.automation.sat_downloader", "app.config.config_defaults",
+    "app.automation.sat_http", "requests", "bs4", "soupsieve", "app.automation.sat_downloader", "app.automation.sat_session", "app.config.config_defaults",
 ]
 
 # ── Análise ────────────────────────────────────────────────────────────────────
@@ -52,6 +38,7 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
+        "playwright",
         "config",                  # fica externo, ao lado do server.exe
         # GUI/extras nao usados pelo backend (enxuga o bundle):
         "customtkinter", "tkcalendar", "PIL",

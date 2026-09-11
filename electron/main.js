@@ -4,7 +4,6 @@ const { randomBytes } = require('crypto');
 const net = require('net');
 const path = require('path');
 const fs = require('fs');
-const { createLicenseClient, getLicenseSettings } = require('./license-client');
 
 // Auto-update via GitHub Releases (repo pÃºblico do projeto).
 // SÃ³ roda no app empacotado; em dev Ã© ignorado.
@@ -16,7 +15,6 @@ const API_TOKEN = randomBytes(32).toString('hex');
 
 let mainWindow;
 let pythonProcess;
-let licenseClient;
 let backendRestartPromise = null;
 
 // A porta e escolhida pelo Windows a cada inicializacao. Isso evita conectar
@@ -37,13 +35,6 @@ const selectAvailableApiPort = () => new Promise((resolve, reject) => {
     });
   });
 });
-
-const isLocalLicenseExemptEndpoint = (endpoint) => {
-  if (endpoint === '/health' || endpoint === '/health/auth') return true;
-  if (/^\/executar\/[^/]+\/status$/.test(endpoint)) return true;
-  if (/^\/executar\/[^/]+\/cancelar$/.test(endpoint)) return true;
-  return false;
-};
 
 // Detectar se estÃ¡ em modo produÃ§Ã£o (empacotado)
 const isProd = app.isPackaged;
@@ -82,11 +73,7 @@ const startPythonBackend = () => {
     let command, args, cwd;
 
     if (isProd && process.platform === 'win32') {
-      // Producao Windows: prefere backend-vercel para permitir troca sem brigar
-      // com um server.exe antigo que ainda esteja travado pelo Windows.
-      const vercelBackend = path.join(process.resourcesPath, 'backend-vercel', 'server.exe');
-      const defaultBackend = path.join(process.resourcesPath, 'backend', 'server.exe');
-      command = fs.existsSync(vercelBackend) ? vercelBackend : defaultBackend;
+      command = path.join(process.resourcesPath, 'backend', 'server.exe');
       args = [];
       cwd = path.dirname(command);
     } else {
@@ -98,7 +85,6 @@ const startPythonBackend = () => {
     }
 
     console.log(`[Main] Iniciando backend: ${command}`);
-    const licenseSettings = getLicenseSettings();
 
     pythonProcess = spawn(command, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -112,11 +98,6 @@ const startPythonBackend = () => {
         NFSE_API_TOKEN: API_TOKEN,
         SAT_DATA_DIR: process.env.SAT_DATA_DIR || (isProd ? path.join(app.getPath('userData'), 'data') : ''),
         NFSE_API_PORT: String(API_PORT),
-        NFSE_LICENSE_SERVER_URL: licenseSettings.serverUrl,
-        NFSE_LICENSE_VALIDATE_URL: licenseSettings.validationUrl,
-        NFSE_LICENSE_ADMIN_URL: licenseSettings.adminUrl,
-        NFSE_CLIENTES_URL: licenseSettings.clientesUrl,
-        NFSE_CLIENT_SECRET: licenseSettings.clientSecret,
       },
     });
 
@@ -294,14 +275,6 @@ ipcMain.handle('api-call', async (event, method, endpoint, body) => {
       'x-api-token': API_TOKEN,
     };
 
-    if (!isLocalLicenseExemptEndpoint(endpoint)) {
-      const key = licenseClient?.getSavedKey?.();
-      if (!key) {
-        throw new Error('Licenca nao ativada no servidor da Vercel.');
-      }
-      headers['x-license-key'] = key;
-    }
-
     const requestBody = body && (typeof body !== 'object' || Object.keys(body).length > 0)
       ? JSON.stringify(body)
       : undefined;
@@ -332,24 +305,11 @@ ipcMain.handle('api-call', async (event, method, endpoint, body) => {
   }
 });
 
-ipcMain.handle('license-status', async () => {
-  return licenseClient.status();
-});
-
-ipcMain.handle('license-activate', async (event, key) => {
-  return licenseClient.activate(key);
-});
-
-ipcMain.handle('license-deactivate', async () => {
-  return licenseClient.deactivate();
-});
-
 // ============================================================================
 // App lifecycle
 // ============================================================================
 app.on('ready', async () => {
   try {
-    licenseClient = createLicenseClient(app);
 
     // Remove o menu padrao (File, Edit, View, Window, Help)
     Menu.setApplicationMenu(null);

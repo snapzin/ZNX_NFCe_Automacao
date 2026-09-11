@@ -27,11 +27,11 @@ def resultado(tipo: str) -> AuthResult:
         "SUCCESS": "Login realizado",
         "USER_SELECTION_REQUIRED": "SAT solicita seleção de usuário/perfil; etapa pendente de mapeamento",
         "INVALID_CREDENTIALS": "Usuário ou senha inválidos",
+        "MISSING_CREDENTIALS": "Informe usuário e senha para acessar o SAT",
         "PORTAL_ERROR": "Erro do portal SAT ou falha de comunicação",
         "ADDITIONAL_STEP": "Tela/etapa adicional; autenticação ainda não confirmada",
         "UNCONFIRMED": "Resposta do login não confirmada; observar a página com a conta de teste",
-        "LAYOUT_CHANGED": "Campos de acesso não encontrados; revisar os seletores do SAT",
-        "MISSING_CREDENTIALS": "Usuário e senha SAT são obrigatórios",
+        "LAYOUT_CHANGED": "Formulário de login não encontrado; revisar os seletores do SAT",
         "BROWSER_ERROR": "Não foi possível iniciar ou controlar o navegador",
     }
     return AuthResult(tipo == "SUCCESS", tipo == "USER_SELECTION_REQUIRED",
@@ -51,8 +51,9 @@ def _normalizar(text: str) -> str:
 def erro_texto(text: str) -> str | None:
     """Reconhece apenas mensagens explícitas; nunca devolve texto bruto do portal."""
     text = _normalizar(text)
-    if any(t in text for t in ("usuario ou senha invalid", "credenciais invalid",
-                               "senha incorreta", "senha invalida")):
+    if any(t in text for t in ("usuario ou senha invalid", "usuario e/ou senha invalid",
+                               "usuario/senha invalid", "senha incorreta", "senha invalida",
+                               "usuario inexistente", "credenciais invalidas")):
         return "INVALID_CREDENTIALS"
     if any(t in text for t in ("erro interno do servidor", "server error in",
                                "servico indisponivel", "service unavailable")):
@@ -80,28 +81,29 @@ def detectar_pagina(page, selectors: dict) -> AuthResult | None:
     if error:
         return resultado(error)
     # URL diferente e desaparecimento do formulário NÃO confirmam autenticação.
-    # O indicador positivo precisa ser observado/configurado com uma conta real.
-    if (_visivel(page, selectors["SAT_SELECTOR_LOGIN_OK"])
-            and not _visivel(page, selectors["SAT_SELECTOR_SENHA"])):
+    # Indicador de aplicações observado na sessão real, com origem oficial.
+    if ((urlsplit(page.url).scheme, urlsplit(page.url).netloc) == (urlsplit(SAT_LOGIN_URL).scheme, urlsplit(SAT_LOGIN_URL).netloc)
+            and _visivel(page, selectors["SAT_SELECTOR_LOGIN_OK"])
+            and not _visivel(page, selectors["SAT_SELECTOR_FORMULARIO_LOGIN"])):
         return resultado("SUCCESS")
     return None
 
 
-def login_sat(page, usuario: str, senha: str, *, config=None, cancel_event=None,
+def login_sat(page, usuario, senha, *, config=None, cancel_event=None,
               on_step: Callable[[str], None] | None = None) -> AuthResult:
-    """Faz um único envio de credenciais e acompanha postbacks, janelas e diálogos.
+    """Envia usuário e senha uma vez e observa o resultado no navegador.
 
     O chamador é dono do navegador/contexto. Não grava HTML, screenshots, traces,
     URLs de retorno, mensagens de exceções ou conteúdo de campos secretos.
     """
     check_cancel(cancel_event)
-    if not usuario.strip() or not senha:
+    if not isinstance(usuario, str) or not usuario.strip() or not isinstance(senha, str) or not senha:
         return resultado("MISSING_CREDENTIALS")
     defaults = default_values()
     selectors = {k: str(getattr(config, k, v)) for k, v in defaults.items()
                  if k.startswith("SAT_SELECTOR_")}
     action_ms = max(1000, min(15000, int(getattr(config, "PLAYWRIGHT_TIMEOUT_MS", 15000))))
-    response_s = max(1, int(getattr(config, "PLAYWRIGHT_LOGIN_TIMEOUT_S", 45)))
+    response_s = max(1, int(getattr(config, "PLAYWRIGHT_LOGIN_TIMEOUT_S", 120)))
     step = on_step or (lambda _: None)
     pages = [page]
     dialogs = []
@@ -135,29 +137,33 @@ def login_sat(page, usuario: str, senha: str, *, config=None, cancel_event=None,
             check_cancel(cancel_event)
             return resultado("PORTAL_ERROR")
         check_cancel(cancel_event)
-        # Não preencher credenciais numa página redirecionada para outra origem.
-        if urlsplit(page.url).hostname != urlsplit(SAT_LOGIN_URL).hostname:
+        # Não acionar autenticação numa página redirecionada para outra origem.
+        if (urlsplit(page.url).scheme, urlsplit(page.url).netloc) != (urlsplit(SAT_LOGIN_URL).scheme, urlsplit(SAT_LOGIN_URL).netloc):
             return resultado("ADDITIONAL_STEP")
         try:
             for key in ("SAT_SELECTOR_USUARIO", "SAT_SELECTOR_SENHA", "SAT_SELECTOR_ENTRAR"):
-                field = page.locator(selectors[key])
-                field.wait_for(state="visible", timeout=action_ms)
-                check_cancel(cancel_event)
-            step("Preenchendo credenciais")
-            page.locator(selectors["SAT_SELECTOR_USUARIO"]).fill(usuario, timeout=action_ms)
-            check_cancel(cancel_event)
-            page.locator(selectors["SAT_SELECTOR_SENHA"]).fill(senha, timeout=action_ms)
+                page.locator(selectors[key]).wait_for(state="visible", timeout=action_ms)
         except Exception:
             check_cancel(cancel_event)
             return resultado("LAYOUT_CHANGED")
         check_cancel(cancel_event)
+        step("Preenchendo credenciais")
+        try:
+            page.locator(selectors["SAT_SELECTOR_USUARIO"]).fill(usuario.strip(), timeout=action_ms)
+            check_cancel(cancel_event)
+            page.locator(selectors["SAT_SELECTOR_SENHA"]).fill(senha, timeout=action_ms)
+        except ExecucaoCancelada:
+            raise
+        except Exception:
+            check_cancel(cancel_event)
+            return resultado("BROWSER_ERROR")
+        check_cancel(cancel_event)
         step("Realizando login")
         try:
-            # Aciona o __doPostBack real do link Entrar, preservando hidden/state.
+            # Clique real preserva validação, hidden fields e postback ASP.NET.
             page.locator(selectors["SAT_SELECTOR_ENTRAR"]).click(timeout=action_ms)
         except Exception:
-            # O clique pode disparar navegação antes de completar a espera.
-            # Observar o resultado; não repetir o envio nem revelar a exceção.
+            # Observar a resposta sem repetir um possível envio já realizado.
             check_cancel(cancel_event)
         step("Aguardando resposta do SAT")
         deadline = time.monotonic() + response_s
@@ -188,7 +194,7 @@ def login_sat(page, usuario: str, senha: str, *, config=None, cancel_event=None,
         for candidate in active:
             try:
                 if (candidate != page or candidate.url != SAT_LOGIN_URL
-                        or not _visivel(candidate, selectors["SAT_SELECTOR_SENHA"])):
+                        or not _visivel(candidate, selectors["SAT_SELECTOR_FORMULARIO_LOGIN"])):
                     return resultado("ADDITIONAL_STEP")
             except Exception:
                 pass

@@ -1,6 +1,6 @@
 {
   "name": "znx-sat-automacao",
-  "version": "0.1.0",
+  "version": "0.4.0",
   "description": "Automação NFC-e SAT com Electron e FastAPI",
   "main": "main.js",
   "homepage": "./",
@@ -38,7 +38,6 @@
     "artifactName": "ZNX-SAT-Setup-${version}.${ext}",
     "files": [
       "main.js",
-      "license-client.js",
       "preload.js",
       "splash.html",
       "assets/**/*",

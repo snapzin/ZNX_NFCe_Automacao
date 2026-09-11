@@ -1,4 +1,15 @@
-# Análise e entrega SAT
+> Versão atual: **0.3.0 — usuário e senha**, conforme [LOGIN_USUARIO_SENHA.md](LOGIN_USUARIO_SENHA.md). O fluxo por certificado abaixo é histórico e foi substituído.
+
+# Análise e entrega SAT — histórico da versão 0.1.0
+
+**Versão atual 0.2.0:** o login passou a usar um certificado do contador para todos
+os clientes. A planilha tem apenas NOME/CNPJ e o licenciamento segue removido.
+Consulte [CERTIFICADO_CONTADOR.md](CERTIFICADO_CONTADOR.md) para o fluxo atual.
+
+**Atualização 0.1.1:** por solicitação do usuário, o licenciamento foi removido
+do Electron, da API e do pacote. O aplicativo abre diretamente, usa cadastro
+local e não consulta o antigo servidor. O token local da API permanece.
+Os detalhes abaixo registram a entrega original, antes dessa alteração.
 
 Data: 10/09/2026. Projeto novo: `D:\Trabalho\ZNX_NFCe_Automacao`.
 Origem: `ZNX_NFSE_AUTOMACAO-main.zip`, preservado no diretório Downloads do usuário.

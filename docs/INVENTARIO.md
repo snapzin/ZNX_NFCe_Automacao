@@ -1,10 +1,11 @@
+> Versão atual: **0.3.0 — usuário e senha**, conforme [LOGIN_USUARIO_SENHA.md](LOGIN_USUARIO_SENHA.md). O fluxo por certificado abaixo é histórico e foi substituído.
+
 # Inventário da entrega
 
 Comparação de conteúdo com o ZIP NFSe fornecido. Caches, dependências instaladas e builds são excluídos desta lista.
 
 ## Reutilizados sem alteração
 
-- `api/license.py`
 - `app/__init__.py`
 - `app/automation/__init__.py`
 - `app/config/__init__.py`
@@ -12,13 +13,13 @@ Comparação de conteúdo com o ZIP NFSe fornecido. Caches, dependências instal
 - `electron/assets/icon.ico`
 - `electron/assets/icon.png`
 - `electron/dev-runner.js`
-- `electron/license-client.js`
-- `electron/preload.js`
 - `electron/renderer/public/logo.png`
 - `electron/renderer/src/styles.css`
 - `electron/vite.config.js`
 
 ## Adaptados
+
+- `electron/preload.js`
 
 - `.gitignore`
 - `CONSTRUIR_INSTALADOR.bat`
@@ -41,6 +42,9 @@ Comparação de conteúdo com o ZIP NFSe fornecido. Caches, dependências instal
 - `app/automation/sat_auth.py`
 - `app/automation/sat_automacao.py`
 - `app/automation/sat_downloader.py`
+- `app/automation/sat_session.py`
+- `docs/CERTIFICADO_CONTADOR.md`
+- `docs/modelo_clientes.xlsx`
 - `docs/RELATORIO_TECNICO.md`
 - `docs/INVENTARIO.md`
 - `docs/VALIDACAO.md`
@@ -58,3 +62,15 @@ Comparação de conteúdo com o ZIP NFSe fornecido. Caches, dependências instal
 ## Principais itens da origem não utilizados
 
 Motor ADN, certificados, login nacional NFSe, Domínio, GUI Tk, relatórios XML/ISS, perfis Chrome, frontends antigos, servidores de licenciamento e scripts de publicação NFSe. A origem permanece no ZIP.
+
+## Removidos na versão 0.1.1
+
+- `api/license.py`
+- `electron/license-client.js`
+
+Removidos também os endpoints, IPCs, painéis e bloqueios de licenciamento, além da sincronização de clientes com o antigo servidor de licenças.
+
+## Alteração 0.2.0
+
+Autenticação com certificado único do contador, sessão compartilhada por todos os
+clientes e planilha somente NOME/CNPJ. Detalhes em `CERTIFICADO_CONTADOR.md`.

@@ -1,6 +1,6 @@
 """Inicia Electron real sem exibir janelas e verifica IPC -> FastAPI.
 
-Não ativa nem simula licença. Valida a tela de ativação e o health autenticado.
+Valida abertura direta da aplicação e o health autenticado, sem licença.
 Usa um diretório de dados temporário e encerra somente o processo que iniciou.
 """
 import json
@@ -66,10 +66,23 @@ def main():
                         time.sleep(.1)
                 if page is None:
                     raise RuntimeError("Interface principal não abriu")
-                page.get_by_role("button", name="Ativar licenca", exact=True).wait_for(timeout=10000)
+                page.get_by_role("button", name="Executar agora", exact=True).wait_for(timeout=10000)
+                assert page.get_by_role("button", name="Executar agora", exact=True).is_enabled()
+                assert page.locator(".license-gate").count() == 0
+                assert page.get_by_label("Usuário SAT", exact=True).is_visible()
+                assert page.get_by_label("Senha SAT (somente nesta execução)", exact=True).is_visible()
+                settings = page.evaluate("window.electronAPI.apiCall('GET', '/config')")
+                assert not any(k.startswith("SAT_CERTIFICADO") for k in settings["values"])
+                assert int(settings["values"]["SAT_HTTP_TIMEOUT_S"]) > 0
+                assert "PLAYWRIGHT_HEADLESS" not in settings["values"]
                 health = page.evaluate("window.electronAPI.apiCall('GET', '/health/auth')")
                 assert health == {"ok": True, "authenticated": True}
-                print(json.dumps({"electron_started": True, "packaged": packaged, "license_gate_visible": True,
+                clients = page.evaluate("window.electronAPI.apiCall('GET', '/clientes')")
+                assert clients["clientes"] == []
+                page.get_by_role("button", name="Clientes", exact=True).click()
+                page.get_by_role("button", name="+ Adicionar cliente", exact=True).wait_for(timeout=10000)
+                print(json.dumps({"electron_started": True, "packaged": packaged, "opens_without_license": True,
+                                  "customers_accessible": True, "http_login_ui_and_backend": True,
                                   "ipc_fastapi_authenticated": health["authenticated"]}))
         finally:
             subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
