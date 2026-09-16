@@ -770,7 +770,7 @@ function SobrePage() {
         <h2>Automacao</h2>
         <p className="version">Versão 0.5.1</p>
         <p className="description">
-          Baixa NFC-e pela API da SEF com um único certificado A1 do contador, sem navegador. Cada empresa recebe somente as pastas Relatorio e XMLs.
+          Baixa NFC-e pela API da SEF com um único certificado A1 do contador, sem navegador. Cada período recebe somente as pastas Relatorio e XMLs dentro da empresa.
         </p>
         <div className="about-info">
           {rows.map(([label, value]) => (

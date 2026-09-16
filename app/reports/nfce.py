@@ -284,7 +284,8 @@ def gerar_execucao(params, results, pasta_saida, job_id, status):
     for client in params.clientes:
         cnpj, name = client["documento"], client["nome"]
         result = mapped.get(cnpj, {})
-        root, report_folder, xml_folder = pastas_empresa(pasta_saida, output_names[cnpj])
+        root, period_folder, report_folder, xml_folder = pastas_empresa(
+            pasta_saida, output_names[cnpj], params.data_inicio, params.data_fim)
         report_folder.mkdir(parents=True, exist_ok=True)
         xml_folder.mkdir(parents=True, exist_ok=True)
         effective = {"cnpj": cnpj, "nome": name, "status": "não processado",
@@ -296,5 +297,6 @@ def gerar_execucao(params, results, pasta_saida, job_id, status):
             files[cnpj] = str(path)
         except Exception:
             errors.append(cnpj)
-        folders[cnpj] = {"empresa": str(root), "relatorio": str(report_folder), "xml": str(xml_folder)}
+        folders[cnpj] = {"empresa": str(root), "periodo": str(period_folder),
+                         "relatorio": str(report_folder), "xml": str(xml_folder)}
     return {"clientes": files, "pastas": folders, "erros": errors}

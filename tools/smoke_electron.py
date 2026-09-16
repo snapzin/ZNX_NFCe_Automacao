@@ -99,7 +99,7 @@ def main():
                     # Reaproveita a distribuição autorizada; não reinicia NSU nem força rede.
                     from app.reports.nfce import parse, txt
                     output = root / "Downloads"
-                    source = output / "JHOW BATATA BATATAS RECHEADAS E MASSAS/XMLs"
+                    source = output / "JHOW BATATA BATATAS RECHEADAS E MASSAS/08 - Agosto 2026/XMLs"
                     note = parse(next(source.glob("NFCe_*.xml")).read_bytes())
                     name = txt(note, "n:NFe/n:infNFe/n:emit/n:xNome")
                     page.evaluate("body => window.electronAPI.apiCall('POST','/config',body)", {"PASTA_SAIDA": str(output)})

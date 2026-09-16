@@ -23,7 +23,8 @@ def main():
     try:
         with abrir_api(cert) as api:
             root = Path(__file__).resolve().parents[1]
-            _, _, xml_folder = pastas_empresa(root / "Downloads", args.nome or args.cnpj)
+            _, _, _, xml_folder = pastas_empresa(root / "Downloads", args.nome or args.cnpj,
+                                                  args.inicio, args.fim)
             result = baixar_periodo(api,cnpj=args.cnpj,inicio=args.inicio,fim=args.fim,
                 pasta_saida=xml_folder, pasta_cache=root/"cache_nfce"/args.cnpj,
                 on_step=lambda m:print(m,flush=True))

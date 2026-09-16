@@ -37,8 +37,8 @@ def main():
                   if (endpoint.endsWith('/status') && window.sentJob?.tipoLogin === 'certificado_api') return {
                     status:'ok', logs:[], progress:{total:1, processed:1, clients:[{cnpj:'12345678000195', nome:'Empresa UI', status:'ok', notas:2, eventos:1}]},
                     resultado:{notas:2,eventos:1,total:1,resultados:[{cnpj:'12345678000195',nome:'Empresa UI',notas:2,eventos:1,pasta:'C:/output'}],
-                      relatorios:{clientes:{'12345678000195':'C:/output/Empresa/Relatorio/Cliente.xlsx'},
-                        pastas:{'12345678000195':{relatorio:'C:/output/Empresa/Relatorio',xml:'C:/output/Empresa/XMLs'}},erros:[]}}
+                      relatorios:{clientes:{'12345678000195':'C:/output/Empresa/08 - Agosto 2026/Relatorio/Cliente.xlsx'},
+                        pastas:{'12345678000195':{periodo:'C:/output/Empresa/08 - Agosto 2026',relatorio:'C:/output/Empresa/08 - Agosto 2026/Relatorio',xml:'C:/output/Empresa/08 - Agosto 2026/XMLs'}},erros:[]}}
                   };
                   if (endpoint.endsWith('/status')) return {
                     status:'pendente', logs:[], progress:{total:1, processed:1,
@@ -68,9 +68,13 @@ def main():
             password=page.get_by_label("Senha do certificado (somente nesta execução)",exact=True)
             assert password.get_attribute("type")=="password"
             password.fill("synthetic-certificate-password")
+            page.locator('.check-row input[type="checkbox"]').uncheck()
+            page.locator('input[type="date"]').nth(0).fill('2026-08-01')
+            page.locator('input[type="date"]').nth(1).fill('2026-08-31')
             page.get_by_role("button",name="Executar agora",exact=True).click()
             page.wait_for_function("window.sentJob?.certificado?.senha === 'synthetic-certificate-password'")
             assert not page.evaluate("'credenciais' in window.sentJob")
+            assert page.evaluate("window.sentJob.dataInicio + ',' + window.sentJob.dataFim") == "01/08/2026,31/08/2026"
             assert password.input_value()==""
             page.get_by_role("button",name="Relatório da empresa",exact=True).click()
             page.wait_for_function("window.openedResult?.[1] === 'cliente' && window.openedResult?.[2] === '12345678000195'")

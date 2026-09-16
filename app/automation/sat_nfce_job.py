@@ -41,7 +41,8 @@ def executar_api(params, cancel_event=None, *, config, certificado, on_progress=
 
                 progress(index, client, "Consultando NFC-e emitidas com o certificado do contador")
                 try:
-                    _, _, xml_folder = pastas_empresa(config.PASTA_SAIDA, output_names[client["documento"]])
+                    _, _, _, xml_folder = pastas_empresa(config.PASTA_SAIDA, output_names[client["documento"]],
+                                                          params.data_inicio, params.data_fim)
                     cache_root = Path(config.CACHE_NFCE) / client["documento"]
                     data = baixar_periodo(api, cnpj=client["documento"], inicio=params.data_inicio,
                         fim=params.data_fim, pasta_saida=xml_folder, pasta_cache=cache_root,

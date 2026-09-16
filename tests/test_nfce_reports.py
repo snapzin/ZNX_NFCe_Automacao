@@ -96,4 +96,11 @@ def test_rejected_cancellation_is_not_deducted(data):
 def test_duplicate_company_names_get_separate_folders(tmp_path):
     clients=[{"documento":CNPJ,"nome":"Mesmo Nome"},{"documento":"22222222000100","nome":"mesmo nome"}]
     report=nfce.gerar_execucao(Parametros("2026-08-01","2026-08-31",clients),[],tmp_path,"job","cancelado")
-    roots={Path(data["emp
+    roots={Path(data["empresa"]).name for data in report["pastas"].values()}
+    assert roots=={f"Mesmo Nome - {CNPJ}","mesmo nome - 22222222000100"}
+    assert not report["erros"]
+
+
+def test_period_folder_names_month_or_exact_range():
+    assert nome_periodo("2026-08-01","2026-08-31")=="08 - Agosto 2026"
+    assert nome_periodo("2026-08-10","2026-09-05")=="10-08-2026 a 05-09-2026"
