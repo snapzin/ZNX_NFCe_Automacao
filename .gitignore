@@ -56,6 +56,7 @@ electron/renderer-dist/
 
 # ── Vercel ────────────────────────────────────────────────────────
 .vercel/
+.worktrees/
 
 # ── Sistema operacional ───────────────────────────────────────────
 .DS_Store
